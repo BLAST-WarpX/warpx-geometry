@@ -33,6 +33,10 @@ def plot_field2D(
         case "Z":
             data = field[cut_idx, :, :]
             extent = [info.ymin, info.ymax, info.xmin, info.xmax]
+        case _:
+            raise ValueError(
+                f"cut_direction must be 'X', 'Y', or 'Z', got {cut_direction!r}"
+            )
 
     fig, ax = plt.subplots()
     ax.imshow(data, extent=extent)
