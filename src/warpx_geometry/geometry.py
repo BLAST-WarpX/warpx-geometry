@@ -79,6 +79,7 @@ class BaseObject:
 
 class Intersection(BaseObject):
     def __init__(self, a, b):
+        super().__init__()
         self.a = a
         self.b = b
 
@@ -94,6 +95,7 @@ class Intersection(BaseObject):
 
 class Union(BaseObject):
     def __init__(self, a, b):
+        super().__init__()
         self.a = a
         self.b = b
 
@@ -109,6 +111,7 @@ class Union(BaseObject):
 
 class Diff(BaseObject):
     def __init__(self, a, b):
+        super().__init__()
         self.a = a
         self.b = b
 
