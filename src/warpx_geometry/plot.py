@@ -32,7 +32,7 @@ def plot_field2D(
             extent = [info.xmin, info.xmax, info.zmin, info.zmax]
         case "Z":
             data = field[cut_idx, :, :]
-            extent = [info.xmin, info.xmax, info.ymin, info.ymax]
+            extent = [info.ymin, info.ymax, info.xmin, info.xmax]
 
     fig, ax = plt.subplots()
     ax.imshow(data, extent=extent)
