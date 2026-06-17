@@ -68,14 +68,6 @@ class BaseObject:
     def normalize(self):
         return f"(if({self.shape} > 0, 1, 0))"
 
-    def eval(self, x, y, z):
-        val = eval(self.shape, {"x": x, "y": y, "z": z, "sqrt": np.sqrt})
-        # in case of Box we get booleans, so we need to convert back
-        # Handle both scalar and array inputs
-        val = np.asarray(val, dtype=float)
-        val = np.where(val > 0, 1, 0)
-        return val
-
 
 class Intersection(BaseObject):
     def __init__(self, a, b):
@@ -127,10 +119,21 @@ class Diff(BaseObject):
 
 class Translate(BaseObject):
     def __init__(self, obj, x=0, y=0, z=0):
-        self.shape = obj.shape
-        self.shape = self.shape.replace("x", f"(x-{x})")
-        self.shape = self.shape.replace("y", f"(y-{y})")
-        self.shape = self.shape.replace("z", f"(z-{z})")
+        super().__init__()
+        self.obj = obj
+        self.dx = x
+        self.dy = y
+        self.dz = z
+
+    def __str__(self):
+        s = str(self.obj)
+        s = s.replace("x", f"(x-{self.dx})")
+        s = s.replace("y", f"(y-{self.dy})")
+        s = s.replace("z", f"(z-{self.dz})")
+        return s
+
+    def eval(self, x, y, z):
+        return self.obj.eval(x - self.dx, y - self.dy, z - self.dz)
 
 
 class Cylinder(BaseObject):
