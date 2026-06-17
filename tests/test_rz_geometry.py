@@ -1,7 +1,6 @@
 """Tests for RZ (cylindrical) geometry - testing in RZ coordinate system."""
 
 import numpy as np
-import pytest
 
 from warpx_geometry import (
     Cone,
@@ -45,7 +44,7 @@ class TestRZCylinder:
         # Create RZ grid
         r_vals = np.linspace(0.0, 0.02, 20)
         z_vals = np.linspace(-0.01, 0.11, 20)
-        R, Z = np.meshgrid(r_vals, z_vals, indexing='ij')
+        R, Z = np.meshgrid(r_vals, z_vals, indexing="ij")
 
         # In RZ, x=r, y=0
         X = R
@@ -144,9 +143,7 @@ class TestRZRoundedCylinder:
 
     def test_rounded_cylinder_rz(self):
         """Test rounded cylinder in RZ coordinates."""
-        cyl = RoundedCylinderZ(
-            radius=0.010, zmin=0.0, zmax=0.05, fillet_radius=0.001
-        )
+        cyl = RoundedCylinderZ(radius=0.010, zmin=0.0, zmax=0.05, fillet_radius=0.001)
 
         # Main body should be inside
         val = cyl.eval(x=0.005, y=0.0, z=0.025)
@@ -162,9 +159,7 @@ class TestRZRoundedCylinder:
 
     def test_rounded_cylinder_fillet_region(self):
         """Test the filleted regions of rounded cylinder."""
-        cyl = RoundedCylinderZ(
-            radius=0.010, zmin=0.0, zmax=0.05, fillet_radius=0.001
-        )
+        cyl = RoundedCylinderZ(radius=0.010, zmin=0.0, zmax=0.05, fillet_radius=0.001)
 
         # Point in bottom fillet region
         # Fillet is at z=0.001, major_radius=0.009
@@ -231,7 +226,7 @@ class TestRZGeometryMask:
         z_grid = np.linspace(0.0, 0.15, nz)
         r_grid = np.linspace(0.0, 0.02, nr)
 
-        Z, R = np.meshgrid(z_grid, r_grid, indexing='ij')
+        Z, R = np.meshgrid(z_grid, r_grid, indexing="ij")
 
         # In RZ: x=r, y=0
         X = R
@@ -261,7 +256,7 @@ class TestRZGeometryMask:
         # Create RZ grid
         z_grid = np.linspace(0.0, 0.1, 100)
         r_grid = np.linspace(0.0, 0.015, 50)
-        Z, R = np.meshgrid(z_grid, r_grid, indexing='ij')
+        Z, R = np.meshgrid(z_grid, r_grid, indexing="ij")
         X = R
         Y = np.zeros_like(R)
 
@@ -293,9 +288,6 @@ class TestRZSymmetry:
         # At y=0, x=r (standard RZ slice)
         val1 = cyl.eval(x=r, y=0.0, z=0.0)
 
-        # At y=0, x=-r (opposite side, but |r| same)
-        val2 = cyl.eval(x=-r, y=0.0, z=0.0)
-
         # Both should be inside (same distance from axis)
         # Note: our Cylinder class uses x^2+y^2, so (-r)^2 = r^2
         assert val1 == 1.0
@@ -310,7 +302,7 @@ class TestRZSymmetry:
         # Create RZ slice at y=0
         r_vals = np.linspace(0.0, 0.015, 30)
         z_vals = np.linspace(0.095, 0.105, 30)
-        R, Z = np.meshgrid(r_vals, z_vals, indexing='ij')
+        R, Z = np.meshgrid(r_vals, z_vals, indexing="ij")
         X = R
         Y = np.zeros_like(R)
 

@@ -1,7 +1,6 @@
 """Tests for XYZ (Cartesian) geometry objects."""
 
 import numpy as np
-import pytest
 
 from warpx_geometry import (
     Box,
@@ -211,9 +210,7 @@ class TestAdvancedShapes:
 
     def test_rounded_cylinder(self):
         """Test rounded cylinder with fillets."""
-        cyl = RoundedCylinderZ(
-            radius=0.010, zmin=0.0, zmax=0.05, fillet_radius=0.001
-        )
+        cyl = RoundedCylinderZ(radius=0.010, zmin=0.0, zmax=0.05, fillet_radius=0.001)
         # Center should be inside
         val = cyl.eval(x=0.005, y=0.0, z=0.025)
         assert val == 1.0

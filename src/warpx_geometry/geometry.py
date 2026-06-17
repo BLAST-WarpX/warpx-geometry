@@ -35,8 +35,9 @@ shapes:
 * cone
 *
 * ROTATION
-* TRANSLATE (problem with replace and search is that x in max will also be replaced).
-  need to do TRANSLATE similar to eval, e.g. only on most basic structures and then with better regexp)
+* TRANSLATE (problem with replace and search is that x in max will also be
+  replaced). Need to do TRANSLATE similar to eval, e.g. only on most basic
+  structures and then with better regexp)
 * Add tests
 
 * plot 2d cuts? Add alpha regions for voltages
@@ -45,8 +46,8 @@ shapes:
 
 """
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
 
 class BaseObject:
@@ -198,17 +199,20 @@ class Torus(BaseObject):
         # Torus at z=0.1m with 10mm major radius and 1mm minor radius
         torus = Torus(major_radius=0.010, minor_radius=0.001, z_center=0.1)
     """
+
     def __init__(self, major_radius, minor_radius, z_center=0):
         super().__init__()
         self.R = major_radius
         self.r = minor_radius
         self.z0 = z_center
         # Torus equation: (sqrt(x^2+y^2) - R)^2 + (z-z0)^2 < r^2
-        self.shape = f"({self.r}**2 - ((sqrt(x**2 + y**2) - {self.R})**2 + (z - {self.z0})**2))"
+        self.shape = (
+            f"({self.r}**2 - ((sqrt(x**2 + y**2) - {self.R})**2 + (z - {self.z0})**2))"
+        )
 
     def eval(self, x, y, z):
         r_xy = np.sqrt(x**2 + y**2)
-        val = self.r**2 - ((r_xy - self.R)**2 + (z - self.z0)**2)
+        val = self.r**2 - ((r_xy - self.R) ** 2 + (z - self.z0) ** 2)
         val = np.where(val > 0, 1, 0)
         return val
 
@@ -224,6 +228,7 @@ class Cone(BaseObject):
         # Cone from z=0 to z=0.1m, tapering from 10mm to 5mm radius
         cone = Cone(z1=0.0, z2=0.1, r1=0.010, r2=0.005)
     """
+
     def __init__(self, z1, z2, r1, r2):
         super().__init__()
         self.z1 = z1
@@ -263,7 +268,10 @@ class RoundedCylinderZ(Union):
         # 10mm radius cylinder from z=0 to z=0.05m with 1mm fillets
         cyl = RoundedCylinderZ(radius=0.010, zmin=0.0, zmax=0.05, fillet_radius=0.001)
     """
-    def __init__(self, radius, zmin, zmax, fillet_radius, fillet_top=True, fillet_bottom=True):
+
+    def __init__(
+        self, radius, zmin, zmax, fillet_radius, fillet_top=True, fillet_bottom=True
+    ):
         # Main cylinder body (reduced height to accommodate fillets)
         z_body_min = zmin + (fillet_radius if fillet_bottom else 0)
         z_body_max = zmax - (fillet_radius if fillet_top else 0)
@@ -276,7 +284,7 @@ class RoundedCylinderZ(Union):
             bottom_fillet = Torus(
                 major_radius=radius - fillet_radius,
                 minor_radius=fillet_radius,
-                z_center=zmin + fillet_radius
+                z_center=zmin + fillet_radius,
             )
             parts.append(bottom_fillet)
 
@@ -285,7 +293,7 @@ class RoundedCylinderZ(Union):
             top_fillet = Torus(
                 major_radius=radius - fillet_radius,
                 minor_radius=fillet_radius,
-                z_center=zmax - fillet_radius
+                z_center=zmax - fillet_radius,
             )
             parts.append(top_fillet)
 
@@ -314,10 +322,21 @@ class RoundedCylinderZ_hollow(Diff):
             zmin=0.0, zmax=0.05, fillet_radius=0.001
         )
     """
-    def __init__(self, radius_outer, radius_inner, zmin, zmax, fillet_radius,
-                 fillet_top=True, fillet_bottom=True):
+
+    def __init__(
+        self,
+        radius_outer,
+        radius_inner,
+        zmin,
+        zmax,
+        fillet_radius,
+        fillet_top=True,
+        fillet_bottom=True,
+    ):
         # Outer rounded cylinder
-        outer = RoundedCylinderZ(radius_outer, zmin, zmax, fillet_radius, fillet_top, fillet_bottom)
+        outer = RoundedCylinderZ(
+            radius_outer, zmin, zmax, fillet_radius, fillet_top, fillet_bottom
+        )
 
         # Inner cylinder to subtract (make it taller to ensure clean subtraction)
         dz = (zmax - zmin) * 0.75

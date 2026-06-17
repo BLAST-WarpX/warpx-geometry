@@ -6,9 +6,29 @@ as analytical functions for WarpX particle-in-cell simulations.
 
 __version__ = "0.1.0"
 
-from .geometry import *
 from .complex_geometry import Einzellens
-from .plot import plot_field2D, plot_particles2D, plot_rz_geometry_components, create_rz_geometry_mask
+from .geometry import (
+    BaseObject,
+    Box,
+    Cone,
+    Cylinder,
+    CylinderZ,
+    CylinderZ_hollow,
+    Diff,
+    Geometry,
+    Intersection,
+    RoundedCylinderZ,
+    RoundedCylinderZ_hollow,
+    Torus,
+    Translate,
+    Union,
+)
+from .plot import (
+    create_rz_geometry_mask,
+    plot_field2D,
+    plot_particles2D,
+    plot_rz_geometry_components,
+)
 
 __all__ = [
     # Base classes

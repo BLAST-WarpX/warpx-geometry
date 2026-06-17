@@ -2,8 +2,8 @@
 
 from collections import defaultdict
 
-from matplotlib import pyplot as plt
 import numpy as np
+from matplotlib import pyplot as plt
 
 
 def plot_field2D(
@@ -54,7 +54,7 @@ def plot_particles2D(
     data = defaultdict(list)
     for i in range(N):
         id_, y, z = container.get_particle(["id", "y", "z"], iteration=i)
-        for a, b, c in zip(id_, y, z):
+        for a, b, c in zip(id_, y, z, strict=False):
             data[a].append([b, c])
     for id_ in list(data.keys())[:100]:
         points = np.array(data[id_])
@@ -70,8 +70,10 @@ def plot_particles2D(
 # RZ Geometry Plotting
 # ====================
 
-def plot_rz_geometry_components(ax, components_dict, z_range, r_range,
-                                resolution_factor=10, alpha=None, fill=True):
+
+def plot_rz_geometry_components(
+    ax, components_dict, z_range, r_range, resolution_factor=10, alpha=None, fill=True
+):
     """
     Plot RZ geometry components with different colors using alpha masks.
 
@@ -91,16 +93,16 @@ def plot_rz_geometry_components(ax, components_dict, z_range, r_range,
     alpha : float or None
         Transparency of geometry overlay. If None, makes geometry opaque (default: None)
     fill : bool
-        If True, fill geometry regions with color. If False, only draw outlines (default: True)
+        If True, fill geometry regions with color. If False, only draw
+        outlines (default: True)
 
     Example:
     --------
     >>> components = {
-    ...     'tube': (vacuum_tube, 'lightgray'),
-    ...     'electrode': (electrode, 'red'),
+    ...     "tube": (vacuum_tube, "lightgray"),
+    ...     "electrode": (electrode, "red"),
     ... }
-    >>> plot_rz_geometry_components(ax, components, z_range=(0, 0.2),
-    ...                             r_range=(0, 0.03))
+    >>> plot_rz_geometry_components(ax, components, z_range=(0, 0.2), r_range=(0, 0.03))
     """
     z_min, z_max = z_range
     r_min, r_max = r_range
@@ -114,40 +116,53 @@ def plot_rz_geometry_components(ax, components_dict, z_range, r_range,
     r_grid = np.linspace(r_min, r_max, nr)
 
     # Create meshgrids
-    Z, R = np.meshgrid(z_grid, r_grid, indexing='ij')
+    Z, R = np.meshgrid(z_grid, r_grid, indexing="ij")
 
     # In RZ, we sample at y=0, so x = r (taking positive side)
     X = R
     Y = np.zeros_like(R)
 
     # Plot each component
-    for name, (geom_obj, color) in components_dict.items():
+    for _name, (geom_obj, color) in components_dict.items():
         # Evaluate geometry on grid
         mask = geom_obj.eval(X, Y, Z)
 
         # Plot filled region where mask > 0 (inside geometry)
         if fill:
-            # Use contourf with two levels: background (white/transparent) and filled (color)
+            # Use contourf with two levels: background (white/transparent)
+            # and filled (color)
             if alpha is None:
                 # Opaque geometry (for phi plots)
-                ax.contourf(Z * 1000, R * 1000, mask,
-                           levels=[0.5, 1.5],  # Only show inside region
-                           colors=[color],
-                           antialiased=True)
+                ax.contourf(
+                    Z * 1000,
+                    R * 1000,
+                    mask,
+                    levels=[0.5, 1.5],  # Only show inside region
+                    colors=[color],
+                    antialiased=True,
+                )
             else:
                 # Transparent geometry (for overlays)
-                ax.contourf(Z * 1000, R * 1000, mask,
-                           levels=[0.5, 1.5],
-                           colors=[color],
-                           alpha=alpha,
-                           antialiased=True)
+                ax.contourf(
+                    Z * 1000,
+                    R * 1000,
+                    mask,
+                    levels=[0.5, 1.5],
+                    colors=[color],
+                    alpha=alpha,
+                    antialiased=True,
+                )
 
         # Add edge outline
-        ax.contour(Z * 1000, R * 1000, mask,
-                  levels=[0.5],
-                  colors=[color],
-                  linewidths=1.5,
-                  alpha=1.0 if alpha is None else min(alpha * 2, 1.0))
+        ax.contour(
+            Z * 1000,
+            R * 1000,
+            mask,
+            levels=[0.5],
+            colors=[color],
+            linewidths=1.5,
+            alpha=1.0 if alpha is None else min(alpha * 2, 1.0),
+        )
 
     return ax
 
@@ -181,7 +196,7 @@ def create_rz_geometry_mask(geom_obj, z_range, r_range, resolution_factor=10):
     z_grid = np.linspace(z_min, z_max, nz)
     r_grid = np.linspace(r_min, r_max, nr)
 
-    Z, R = np.meshgrid(z_grid, r_grid, indexing='ij')
+    Z, R = np.meshgrid(z_grid, r_grid, indexing="ij")
     X = R
     Y = np.zeros_like(R)
 
