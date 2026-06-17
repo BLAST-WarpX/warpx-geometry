@@ -68,6 +68,7 @@ def plot_particles2D(
     plt.ylabel("z")
     if filename:
         plt.savefig(filename)
+    return ax
 
 
 # ====================
