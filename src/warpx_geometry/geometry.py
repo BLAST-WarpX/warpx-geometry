@@ -69,7 +69,7 @@ class BaseObject:
         return f"(if({self.shape} > 0, 1, 0))"
 
     def eval(self, x, y, z):
-        val = eval(self.shape, {"x": x, "y": y, "z": z})
+        val = eval(self.shape, {"x": x, "y": y, "z": z, "sqrt": np.sqrt})
         # in case of Box we get booleans, so we need to convert back
         # Handle both scalar and array inputs
         val = np.asarray(val, dtype=float)
