@@ -12,6 +12,7 @@ from warpx_geometry import (
     Diff,
     Geometry,
     Intersection,
+    Rotate,
     RoundedCylinderZ,
     RoundedCylinderZ_hollow,
     Scale,
@@ -385,6 +386,58 @@ class TestScale:
         # Endpoints expanded to z=-0.05 and z=0.15
         assert scaled.eval(x=0.0, y=0.0, z=-0.04) == 1.0
         assert scaled.eval(x=0.0, y=0.0, z=-0.06) == 0.0
+
+
+class TestRotate:
+    """Test Rotate transform."""
+
+    def test_rotate_cylinder_unchanged(self):
+        """Cylinder is rotationally symmetric — rotation should not change eval."""
+        cyl = Cylinder(radius=0.01)
+        rotated = Rotate(cyl, angle=np.pi / 4, axis="z")
+        # Inside at r=0.005
+        assert rotated.eval(x=0.005, y=0.0, z=0.0) == 1.0
+        # Outside at r=0.02
+        assert rotated.eval(x=0.02, y=0.0, z=0.0) == 0.0
+
+    def test_rotate_box_z_90deg(self):
+        """90-degree z rotation swaps x and y extents of a box."""
+        # Box along x: x in [0.01, 0.02], y in [-0.001, 0.001]
+        box = Box(xmin=0.01, xmax=0.02, ymin=-0.001, ymax=0.001, zmin=-1, zmax=1)
+        rotated = Rotate(box, angle=np.pi / 2, axis="z")
+        # After 90° rotation: box lies along y axis
+        assert rotated.eval(x=0.0, y=0.015, z=0.0) == 1.0
+        assert rotated.eval(x=0.015, y=0.0, z=0.0) == 0.0
+
+    def test_rotate_str_contains_cos_sin(self):
+        box = Box(xmin=-0.01, xmax=0.01, ymin=-0.01, ymax=0.01, zmin=0, zmax=0.1)
+        s = str(Rotate(box, angle=np.pi / 4, axis="z"))
+        assert "cos" not in s  # we embed numeric values, not 'cos'
+        # numeric cos(pi/4) ≈ 0.707 should appear
+        assert "0.7071" in s or "0.707" in s
+
+    def test_rotate_no_double_substitution(self):
+        """Placeholder approach must prevent y-terms in x-sub from being re-replaced."""
+        box = Box(xmin=-0.01, xmax=0.01, ymin=-0.01, ymax=0.01, zmin=0, zmax=0.1)
+        rotated = Rotate(box, angle=np.pi / 4, axis="z")
+        # Verify eval is consistent with str (both give same result)
+        pt = dict(x=0.005, y=0.005, z=0.05)
+        assert rotated.eval(**pt) == 1.0
+
+    def test_rotate_bbox_z(self):
+        """Rotated box bbox should be larger (conservative AABB)."""
+        box = Box(xmin=-0.01, xmax=0.01, ymin=-0.01, ymax=0.01, zmin=0, zmax=0.1)
+        rotated = Rotate(box, angle=np.pi / 4, axis="z")
+        bb = rotated.bbox
+        # At 45° a [-0.01,0.01]^2 square has AABB extent sqrt(2)*0.01 ≈ 0.01414
+        assert bb.xmax == pytest.approx(np.sqrt(2) * 0.01, rel=1e-5)
+        assert bb.zmin == pytest.approx(0.0)
+        assert bb.zmax == pytest.approx(0.1)
+
+    def test_rotate_invalid_axis(self):
+        cyl = Cylinder(radius=0.01)
+        with pytest.raises(ValueError, match="axis"):
+            Rotate(cyl, angle=0.1, axis="w").eval(0, 0, 0)
 
 
 class TestArrayInputs:

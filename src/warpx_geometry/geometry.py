@@ -299,6 +299,83 @@ def scale_to_bbox_center(obj, sx=1, sy=1, sz=1):
     return scale_around(obj, sx, sy, sz, bb.cx, bb.cy, bb.cz)
 
 
+class Rotate(BaseObject):
+    """Rotate a geometry object around the x, y, or z axis through the origin.
+
+    Parameters:
+        obj: Geometry object to rotate
+        angle: Rotation angle in radians (counter-clockwise when viewed from +axis)
+        axis: Rotation axis — 'x', 'y', or 'z' (default 'z')
+
+    Example:
+        # Rotate a box 45 degrees around the z-axis
+        rotated = Rotate(box, angle=np.pi / 4, axis="z")
+    """
+
+    def __init__(self, obj, angle, axis="z"):
+        super().__init__()
+        self.obj = obj
+        self.angle = angle
+        self.axis = axis
+
+    def __str__(self):
+        c = float(np.cos(self.angle))
+        s = float(np.sin(self.angle))
+        obj_str = str(self.obj)
+        if self.axis == "z":
+            # Simultaneous substitution via placeholders to prevent double-replacement
+            # (replacing x first would put y into the expression; y replacement
+            # would then also corrupt those newly introduced y terms)
+            obj_str = obj_str.replace("x", "__X__").replace("y", "__Y__")
+            obj_str = obj_str.replace("__X__", f"({c}*x+{s}*y)")
+            obj_str = obj_str.replace("__Y__", f"({-s}*x+{c}*y)")
+        elif self.axis == "y":
+            obj_str = obj_str.replace("x", "__X__").replace("z", "__Z__")
+            obj_str = obj_str.replace("__X__", f"({c}*x+{s}*z)")
+            obj_str = obj_str.replace("__Z__", f"({-s}*x+{c}*z)")
+        elif self.axis == "x":
+            obj_str = obj_str.replace("y", "__Y__").replace("z", "__Z__")
+            obj_str = obj_str.replace("__Y__", f"({c}*y+{s}*z)")
+            obj_str = obj_str.replace("__Z__", f"({-s}*y+{c}*z)")
+        else:
+            raise ValueError(f"axis must be 'x', 'y', or 'z', got {self.axis!r}")
+        return obj_str
+
+    def eval(self, x, y, z):
+        c, s = np.cos(self.angle), np.sin(self.angle)
+        if self.axis == "z":
+            return self.obj.eval(c * x + s * y, -s * x + c * y, z)
+        elif self.axis == "y":
+            return self.obj.eval(c * x + s * z, y, -s * x + c * z)
+        elif self.axis == "x":
+            return self.obj.eval(x, c * y + s * z, -s * y + c * z)
+        else:
+            raise ValueError(f"axis must be 'x', 'y', or 'z', got {self.axis!r}")
+
+    @property
+    def bbox(self):
+        b = self.obj.bbox
+        c, s = np.cos(self.angle), np.sin(self.angle)
+        if self.axis == "z":
+            xs = [b.xmin, b.xmin, b.xmax, b.xmax]
+            ys = [b.ymin, b.ymax, b.ymin, b.ymax]
+            cx = [c * xi - s * yi for xi, yi in zip(xs, ys, strict=False)]
+            cy = [s * xi + c * yi for xi, yi in zip(xs, ys, strict=False)]
+            return BBox(min(cx), max(cx), min(cy), max(cy), b.zmin, b.zmax)
+        elif self.axis == "y":
+            xs = [b.xmin, b.xmin, b.xmax, b.xmax]
+            zs = [b.zmin, b.zmax, b.zmin, b.zmax]
+            cx = [c * xi - s * zi for xi, zi in zip(xs, zs, strict=False)]
+            cz = [s * xi + c * zi for xi, zi in zip(xs, zs, strict=False)]
+            return BBox(min(cx), max(cx), b.ymin, b.ymax, min(cz), max(cz))
+        else:  # axis == "x"
+            ys = [b.ymin, b.ymin, b.ymax, b.ymax]
+            zs = [b.zmin, b.zmax, b.zmin, b.zmax]
+            cy = [c * yi - s * zi for yi, zi in zip(ys, zs, strict=False)]
+            cz = [s * yi + c * zi for yi, zi in zip(ys, zs, strict=False)]
+            return BBox(b.xmin, b.xmax, min(cy), max(cy), min(cz), max(cz))
+
+
 class Cylinder(BaseObject):
     def __init__(self, radius):
         super().__init__()

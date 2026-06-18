@@ -18,6 +18,7 @@ from .geometry import (
     Diff,
     Geometry,
     Intersection,
+    Rotate,
     RoundedCylinderZ,
     RoundedCylinderZ_hollow,
     Scale,
@@ -46,6 +47,7 @@ __all__ = [
     "Intersection",
     "Translate",
     "Scale",
+    "Rotate",
     "scale_around",
     "scale_to_bbox_center",
     # Basic shapes
