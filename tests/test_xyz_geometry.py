@@ -1,6 +1,7 @@
 """Tests for XYZ (Cartesian) geometry objects."""
 
 import numpy as np
+import pytest
 
 from warpx_geometry import (
     Box,
@@ -13,9 +14,12 @@ from warpx_geometry import (
     Intersection,
     RoundedCylinderZ,
     RoundedCylinderZ_hollow,
+    Scale,
     Torus,
     Translate,
     Union,
+    scale_around,
+    scale_to_bbox_center,
 )
 
 
@@ -257,6 +261,130 @@ class TestGeometryWrapper:
         # Outside
         val = geom.eval(x=0.02, y=0.0, z=0.0)
         assert val == 0.0
+
+
+class TestBBox:
+    """Test bounding box property."""
+
+    def test_cylinder_bbox_infinite_z(self):
+        cyl = Cylinder(radius=0.01)
+        bb = cyl.bbox
+        assert bb.xmin == -0.01 and bb.xmax == 0.01
+        assert bb.ymin == -0.01 and bb.ymax == 0.01
+        assert bb.zmin == -np.inf and bb.zmax == np.inf
+
+    def test_cylinderz_bbox(self):
+        cyl = CylinderZ(radius=0.01, zmin=0.0, zmax=0.1)
+        bb = cyl.bbox
+        assert bb.xmin == pytest.approx(-0.01)
+        assert bb.xmax == pytest.approx(0.01)
+        assert bb.zmin == pytest.approx(0.0)
+        assert bb.zmax == pytest.approx(0.1)
+
+    def test_box_bbox(self):
+        box = Box(xmin=-0.05, xmax=0.05, ymin=-0.03, ymax=0.03, zmin=0.0, zmax=0.2)
+        bb = box.bbox
+        assert bb.xmin == -0.05 and bb.xmax == 0.05
+        assert bb.ymin == -0.03 and bb.ymax == 0.03
+        assert bb.zmin == 0.0 and bb.zmax == 0.2
+
+    def test_bbox_center(self):
+        cyl = CylinderZ(radius=0.01, zmin=0.0, zmax=0.1)
+        bb = cyl.bbox
+        assert bb.cx == pytest.approx(0.0)
+        assert bb.cy == pytest.approx(0.0)
+        assert bb.cz == pytest.approx(0.05)
+
+    def test_bbox_size(self):
+        box = Box(xmin=-0.01, xmax=0.01, ymin=-0.02, ymax=0.02, zmin=0.0, zmax=0.1)
+        sz = box.bbox.size
+        assert sz == pytest.approx((0.02, 0.04, 0.1))
+
+    def test_translate_bbox(self):
+        cyl = CylinderZ(radius=0.01, zmin=0.0, zmax=0.1)
+        moved = Translate(cyl, z=0.05)
+        bb = moved.bbox
+        assert bb.zmin == pytest.approx(0.05)
+        assert bb.zmax == pytest.approx(0.15)
+
+    def test_union_bbox(self):
+        cyl1 = CylinderZ(radius=0.01, zmin=0.0, zmax=0.05)
+        cyl2 = CylinderZ(radius=0.01, zmin=0.06, zmax=0.1)
+        combined = Union(cyl1, cyl2)
+        bb = combined.bbox
+        assert bb.zmin == pytest.approx(0.0)
+        assert bb.zmax == pytest.approx(0.1)
+
+    def test_torus_bbox(self):
+        torus = Torus(major_radius=0.01, minor_radius=0.001, z_center=0.05)
+        bb = torus.bbox
+        assert bb.xmin == pytest.approx(-0.011)
+        assert bb.zmin == pytest.approx(0.049)
+        assert bb.zmax == pytest.approx(0.051)
+
+    def test_cone_bbox(self):
+        cone = Cone(z1=0.0, z2=0.1, r1=0.01, r2=0.005)
+        bb = cone.bbox
+        assert bb.xmin == pytest.approx(-0.01)
+        assert bb.xmax == pytest.approx(0.01)
+        assert bb.zmin == pytest.approx(0.0)
+        assert bb.zmax == pytest.approx(0.1)
+
+
+class TestScale:
+    """Test Scale transform and factory functions."""
+
+    def test_scale_doubles_radius(self):
+        cyl = Cylinder(radius=0.01)
+        big = Scale(cyl, sx=2, sy=2)
+        # Point at r=0.015 should now be inside (was outside original)
+        assert big.eval(x=0.015, y=0.0, z=0.0) == 1.0
+        # Point at r=0.025 should be outside (beyond 2x radius)
+        assert big.eval(x=0.025, y=0.0, z=0.0) == 0.0
+
+    def test_scale_z_only(self):
+        cyl = CylinderZ(radius=0.01, zmin=0.0, zmax=0.1)
+        tall = Scale(cyl, sz=2)
+        # Original zmax was 0.1, now 0.2
+        assert tall.eval(x=0.0, y=0.0, z=0.15) == 1.0
+        assert tall.eval(x=0.0, y=0.0, z=0.25) == 0.0
+
+    def test_scale_str_contains_division(self):
+        cyl = Cylinder(radius=0.01)
+        s = str(Scale(cyl, sx=2))
+        assert "(x/2)" in s
+
+    def test_scale_bbox(self):
+        cyl = CylinderZ(radius=0.01, zmin=0.0, zmax=0.1)
+        big = Scale(cyl, sx=2, sy=2, sz=3)
+        bb = big.bbox
+        assert bb.xmax == pytest.approx(0.02)
+        assert bb.zmax == pytest.approx(0.3)
+
+    def test_scale_around_z_axis(self):
+        cyl = CylinderZ(radius=0.01, zmin=0.0, zmax=0.1)
+        # Scale 2x in z around z=0.05 (center) — should expand symmetrically
+        scaled = scale_around(cyl, sz=2, cz=0.05)
+        bb = scaled.bbox
+        assert bb.zmin == pytest.approx(-0.05)
+        assert bb.zmax == pytest.approx(0.15)
+
+    def test_scale_to_bbox_center(self):
+        cyl = CylinderZ(radius=0.01, zmin=0.0, zmax=0.1)
+        scaled = scale_to_bbox_center(cyl, sz=2)
+        bb = scaled.bbox
+        # Center at z=0.05, scaling by 2 → zmin=-0.05, zmax=0.15
+        assert bb.zmin == pytest.approx(-0.05)
+        assert bb.zmax == pytest.approx(0.15)
+
+    def test_scale_to_bbox_center_eval(self):
+        cyl = CylinderZ(radius=0.01, zmin=0.0, zmax=0.1)
+        scaled = scale_to_bbox_center(cyl, sz=2)
+        # Center stays at z=0.05
+        assert scaled.eval(x=0.0, y=0.0, z=0.05) == 1.0
+        # Endpoints expanded to z=-0.05 and z=0.15
+        assert scaled.eval(x=0.0, y=0.0, z=-0.04) == 1.0
+        assert scaled.eval(x=0.0, y=0.0, z=-0.06) == 0.0
 
 
 class TestArrayInputs:

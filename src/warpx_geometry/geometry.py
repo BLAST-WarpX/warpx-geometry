@@ -227,6 +227,78 @@ class Translate(BaseObject):
         )
 
 
+class Scale(BaseObject):
+    """Scale a geometry object around the origin.
+
+    Parameters:
+        obj: Geometry object to scale
+        sx, sy, sz: Scale factors per axis (must be > 0)
+
+    Example:
+        # Double the radius of a cylinder
+        big = Scale(Cylinder(radius=0.01), sx=2, sy=2)
+        # Stretch a box in z only
+        tall = Scale(box, sz=3)
+    """
+
+    def __init__(self, obj, sx=1, sy=1, sz=1):
+        super().__init__()
+        self.obj = obj
+        self.sx = sx
+        self.sy = sy
+        self.sz = sz
+
+    def __str__(self):
+        s = str(self.obj)
+        s = s.replace("x", f"(x/{self.sx})")
+        s = s.replace("y", f"(y/{self.sy})")
+        s = s.replace("z", f"(z/{self.sz})")
+        return s
+
+    def eval(self, x, y, z):
+        return self.obj.eval(x / self.sx, y / self.sy, z / self.sz)
+
+    @property
+    def bbox(self):
+        b = self.obj.bbox
+        return BBox(
+            b.xmin * self.sx,
+            b.xmax * self.sx,
+            b.ymin * self.sy,
+            b.ymax * self.sy,
+            b.zmin * self.sz,
+            b.zmax * self.sz,
+        )
+
+
+def scale_around(obj, sx=1, sy=1, sz=1, cx=0, cy=0, cz=0):
+    """Scale obj by (sx, sy, sz) around an arbitrary center point.
+
+    Equivalent to: translate to origin, scale, translate back.
+
+    Example:
+        # Scale cylinder by 2x in z around its base (z=0)
+        scaled = scale_around(cyl, sz=2, cz=0)
+    """
+    return Translate(
+        Scale(Translate(obj, x=-cx, y=-cy, z=-cz), sx, sy, sz),
+        x=cx,
+        y=cy,
+        z=cz,
+    )
+
+
+def scale_to_bbox_center(obj, sx=1, sy=1, sz=1):
+    """Scale obj around its own bounding box center.
+
+    Example:
+        # Double the size of an electrode around its own center
+        big = scale_to_bbox_center(electrode, sx=2, sy=2, sz=2)
+    """
+    bb = obj.bbox
+    return scale_around(obj, sx, sy, sz, bb.cx, bb.cy, bb.cz)
+
+
 class Cylinder(BaseObject):
     def __init__(self, radius):
         super().__init__()

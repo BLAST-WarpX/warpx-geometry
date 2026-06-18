@@ -9,6 +9,7 @@ __version__ = "0.1.0"
 from .complex_geometry import Einzellens
 from .geometry import (
     BaseObject,
+    BBox,
     Box,
     Cone,
     Cylinder,
@@ -19,9 +20,12 @@ from .geometry import (
     Intersection,
     RoundedCylinderZ,
     RoundedCylinderZ_hollow,
+    Scale,
     Torus,
     Translate,
     Union,
+    scale_around,
+    scale_to_bbox_center,
 )
 from .plot import (
     create_rz_geometry_mask,
@@ -31,6 +35,8 @@ from .plot import (
 )
 
 __all__ = [
+    # Bounding box
+    "BBox",
     # Base classes
     "BaseObject",
     "Geometry",
@@ -39,6 +45,9 @@ __all__ = [
     "Diff",
     "Intersection",
     "Translate",
+    "Scale",
+    "scale_around",
+    "scale_to_bbox_center",
     # Basic shapes
     "Cylinder",
     "CylinderZ",
