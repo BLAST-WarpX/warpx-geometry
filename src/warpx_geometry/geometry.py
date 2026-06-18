@@ -50,6 +50,53 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
+class BBox:
+    """Axis-aligned bounding box for a geometry object.
+
+    All values in the same units as the geometry (SI, typically meters).
+    Unbounded dimensions use +/-np.inf.
+    """
+
+    def __init__(self, xmin, xmax, ymin, ymax, zmin, zmax):
+        self.xmin = xmin
+        self.xmax = xmax
+        self.ymin = ymin
+        self.ymax = ymax
+        self.zmin = zmin
+        self.zmax = zmax
+
+    @property
+    def cx(self):
+        return (self.xmin + self.xmax) / 2
+
+    @property
+    def cy(self):
+        return (self.ymin + self.ymax) / 2
+
+    @property
+    def cz(self):
+        return (self.zmin + self.zmax) / 2
+
+    @property
+    def center(self):
+        return (self.cx, self.cy, self.cz)
+
+    @property
+    def size(self):
+        return (
+            self.xmax - self.xmin,
+            self.ymax - self.ymin,
+            self.zmax - self.zmin,
+        )
+
+    def __repr__(self):
+        return (
+            f"BBox(x=[{self.xmin}, {self.xmax}], "
+            f"y=[{self.ymin}, {self.ymax}], "
+            f"z=[{self.zmin}, {self.zmax}])"
+        )
+
+
 class BaseObject:
     """A BaseObject for geometries in warpX."""
 
@@ -68,6 +115,10 @@ class BaseObject:
     def normalize(self):
         return f"(if({self.shape} > 0, 1, 0))"
 
+    @property
+    def bbox(self):
+        raise NotImplementedError(f"{type(self).__name__} must implement bbox")
+
 
 class Intersection(BaseObject):
     def __init__(self, a, b):
@@ -83,6 +134,18 @@ class Intersection(BaseObject):
         b_eval = self.b.eval(x, y, z)
 
         return a_eval * b_eval
+
+    @property
+    def bbox(self):
+        a, b = self.a.bbox, self.b.bbox
+        return BBox(
+            max(a.xmin, b.xmin),
+            min(a.xmax, b.xmax),
+            max(a.ymin, b.ymin),
+            min(a.ymax, b.ymax),
+            max(a.zmin, b.zmin),
+            min(a.zmax, b.zmax),
+        )
 
 
 class Union(BaseObject):
@@ -100,6 +163,18 @@ class Union(BaseObject):
 
         return np.maximum(a_eval, b_eval)
 
+    @property
+    def bbox(self):
+        a, b = self.a.bbox, self.b.bbox
+        return BBox(
+            min(a.xmin, b.xmin),
+            max(a.xmax, b.xmax),
+            min(a.ymin, b.ymin),
+            max(a.ymax, b.ymax),
+            min(a.zmin, b.zmin),
+            max(a.zmax, b.zmax),
+        )
+
 
 class Diff(BaseObject):
     def __init__(self, a, b):
@@ -115,6 +190,10 @@ class Diff(BaseObject):
         b_eval = self.b.eval(x, y, z)
 
         return np.where((a_eval - b_eval) > 0.5, 1, 0)
+
+    @property
+    def bbox(self):
+        return self.a.bbox
 
 
 class Translate(BaseObject):
@@ -135,6 +214,18 @@ class Translate(BaseObject):
     def eval(self, x, y, z):
         return self.obj.eval(x - self.dx, y - self.dy, z - self.dz)
 
+    @property
+    def bbox(self):
+        b = self.obj.bbox
+        return BBox(
+            b.xmin + self.dx,
+            b.xmax + self.dx,
+            b.ymin + self.dy,
+            b.ymax + self.dy,
+            b.zmin + self.dz,
+            b.zmax + self.dz,
+        )
+
 
 class Cylinder(BaseObject):
     def __init__(self, radius):
@@ -146,6 +237,11 @@ class Cylinder(BaseObject):
         val = self.radius**2 - (x**2 + y**2)
         val = np.where(val > 0, 1, 0)
         return val
+
+    @property
+    def bbox(self):
+        r = self.radius
+        return BBox(-r, r, -r, r, -np.inf, np.inf)
 
 
 class CylinderZ(Intersection):
@@ -191,6 +287,10 @@ class Box(BaseObject):
         val = np.asarray(val, dtype=float)
         return val
 
+    @property
+    def bbox(self):
+        return BBox(self.xmin, self.xmax, self.ymin, self.ymax, self.zmin, self.zmax)
+
 
 class Torus(BaseObject):
     """Torus with major radius R (distance from z-axis to tube center)
@@ -221,6 +321,13 @@ class Torus(BaseObject):
         val = self.r**2 - ((r_xy - self.R) ** 2 + (z - self.z0) ** 2)
         val = np.where(val > 0, 1, 0)
         return val
+
+    @property
+    def bbox(self):
+        extent = self.R + self.r
+        return BBox(
+            -extent, extent, -extent, extent, self.z0 - self.r, self.z0 + self.r
+        )
 
 
 class Cone(BaseObject):
@@ -258,6 +365,11 @@ class Cone(BaseObject):
         inside_cone = (r_xy < r_z) * (z > self.z1) * (z < self.z2)
         val = inside_cone.astype(float)
         return val
+
+    @property
+    def bbox(self):
+        rmax = max(self.r1, self.r2)
+        return BBox(-rmax, rmax, -rmax, rmax, self.z1, self.z2)
 
 
 class RoundedCylinderZ(Union):
