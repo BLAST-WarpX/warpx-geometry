@@ -18,6 +18,7 @@ from .geometry import (
     Diff,
     Geometry,
     Intersection,
+    RZBBox,
     Rotate,
     RoundedCylinderZ,
     RoundedCylinderZ_hollow,
@@ -25,6 +26,7 @@ from .geometry import (
     Torus,
     Translate,
     Union,
+    bboxes_overlap,
     scale_around,
     scale_to_bbox_center,
 )
@@ -36,8 +38,10 @@ from .plot import (
 )
 
 __all__ = [
-    # Bounding box
+    # Bounding boxes
     "BBox",
+    "RZBBox",
+    "bboxes_overlap",
     # Base classes
     "BaseObject",
     "Geometry",

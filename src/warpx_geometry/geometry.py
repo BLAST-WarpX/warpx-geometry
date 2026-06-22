@@ -89,11 +89,84 @@ class BBox:
             self.zmax - self.zmin,
         )
 
+    def expanded(self, margin: float) -> "BBox":
+        """Return a new BBox enlarged by margin in every direction."""
+        return BBox(
+            self.xmin - margin,
+            self.xmax + margin,
+            self.ymin - margin,
+            self.ymax + margin,
+            self.zmin - margin,
+            self.zmax + margin,
+        )
+
     def __repr__(self):
         return (
             f"BBox(x=[{self.xmin}, {self.xmax}], "
             f"y=[{self.ymin}, {self.ymax}], "
             f"z=[{self.zmin}, {self.zmax}])"
+        )
+
+
+class RZBBox:
+    """Bounding box in RZ (cylindrical) coordinates.
+
+    Stores (rmin, rmax, zmin, zmax).  rmin >= 0 always.
+    Used for potential-expression generation and overlap checks in RZ simulations.
+    """
+
+    def __init__(self, rmin: float, rmax: float, zmin: float, zmax: float):
+        self.rmin = max(0.0, rmin)
+        self.rmax = rmax
+        self.zmin = zmin
+        self.zmax = zmax
+
+    def expanded(self, margin: float) -> "RZBBox":
+        """Return a new RZBBox enlarged by margin in every direction."""
+        return RZBBox(
+            self.rmin - margin,  # constructor clamps to >= 0
+            self.rmax + margin,
+            self.zmin - margin,
+            self.zmax + margin,
+        )
+
+    def __repr__(self):
+        return f"RZBBox(r=[{self.rmin}, {self.rmax}], z=[{self.zmin}, {self.zmax}])"
+
+
+def bboxes_overlap(a, b, tolerance: float = 0) -> bool:
+    """Return True if two bounding boxes overlap.
+
+    Works with both BBox and RZBBox objects.
+
+    Args:
+        a, b: BBox or RZBBox objects (must be the same type).
+        tolerance: Positive value shrinks both boxes before the check
+            (useful to verify separation survives a later expansion).
+            Negative value is equivalent to an expansion.
+
+    Returns:
+        True if the boxes intersect after applying tolerance.
+    """
+    if isinstance(a, RZBBox) and isinstance(b, RZBBox):
+        return (
+            a.rmin + tolerance < b.rmax - tolerance
+            and b.rmin + tolerance < a.rmax - tolerance
+            and a.zmin + tolerance < b.zmax - tolerance
+            and b.zmin + tolerance < a.zmax - tolerance
+        )
+    elif isinstance(a, BBox) and isinstance(b, BBox):
+        return (
+            a.xmin + tolerance < b.xmax - tolerance
+            and b.xmin + tolerance < a.xmax - tolerance
+            and a.ymin + tolerance < b.ymax - tolerance
+            and b.ymin + tolerance < a.ymax - tolerance
+            and a.zmin + tolerance < b.zmax - tolerance
+            and b.zmin + tolerance < a.zmax - tolerance
+        )
+    else:
+        raise TypeError(
+            f"bboxes_overlap requires two BBox or two RZBBox objects, got {type(a)} and {type(b)}"
         )
 
 
@@ -119,6 +192,10 @@ class BaseObject:
     def bbox(self):
         raise NotImplementedError(f"{type(self).__name__} must implement bbox")
 
+    @property
+    def rz_bbox(self) -> RZBBox:
+        raise NotImplementedError(f"{type(self).__name__} must implement rz_bbox")
+
 
 class Intersection(BaseObject):
     def __init__(self, a, b):
@@ -143,6 +220,16 @@ class Intersection(BaseObject):
             min(a.xmax, b.xmax),
             max(a.ymin, b.ymin),
             min(a.ymax, b.ymax),
+            max(a.zmin, b.zmin),
+            min(a.zmax, b.zmax),
+        )
+
+    @property
+    def rz_bbox(self) -> RZBBox:
+        a, b = self.a.rz_bbox, self.b.rz_bbox
+        return RZBBox(
+            max(a.rmin, b.rmin),
+            min(a.rmax, b.rmax),
             max(a.zmin, b.zmin),
             min(a.zmax, b.zmax),
         )
@@ -175,6 +262,16 @@ class Union(BaseObject):
             max(a.zmax, b.zmax),
         )
 
+    @property
+    def rz_bbox(self) -> RZBBox:
+        a, b = self.a.rz_bbox, self.b.rz_bbox
+        return RZBBox(
+            min(a.rmin, b.rmin),
+            max(a.rmax, b.rmax),
+            min(a.zmin, b.zmin),
+            max(a.zmax, b.zmax),
+        )
+
 
 class Diff(BaseObject):
     def __init__(self, a, b):
@@ -194,6 +291,12 @@ class Diff(BaseObject):
     @property
     def bbox(self):
         return self.a.bbox
+
+    @property
+    def rz_bbox(self) -> RZBBox:
+        # Conservative: the subtracted region is interior, overall extent stays a's.
+        # Subclasses that know the inner radius (e.g. CylinderZ_hollow) override this.
+        return self.a.rz_bbox
 
 
 class Translate(BaseObject):
@@ -222,6 +325,17 @@ class Translate(BaseObject):
             b.xmax + self.dx,
             b.ymin + self.dy,
             b.ymax + self.dy,
+            b.zmin + self.dz,
+            b.zmax + self.dz,
+        )
+
+    @property
+    def rz_bbox(self) -> RZBBox:
+        b = self.obj.rz_bbox
+        # In RZ, x is the radial coordinate; dx shifts the r-extent.
+        return RZBBox(
+            b.rmin + self.dx,  # RZBBox constructor clamps to >= 0
+            b.rmax + self.dx,
             b.zmin + self.dz,
             b.zmax + self.dz,
         )
@@ -266,6 +380,16 @@ class Scale(BaseObject):
             b.xmax * self.sx,
             b.ymin * self.sy,
             b.ymax * self.sy,
+            b.zmin * self.sz,
+            b.zmax * self.sz,
+        )
+
+    @property
+    def rz_bbox(self) -> RZBBox:
+        b = self.obj.rz_bbox
+        return RZBBox(
+            b.rmin * self.sx,
+            b.rmax * self.sx,
             b.zmin * self.sz,
             b.zmax * self.sz,
         )
@@ -375,6 +499,13 @@ class Rotate(BaseObject):
             cz = [s * yi + c * zi for yi, zi in zip(ys, zs, strict=False)]
             return BBox(b.xmin, b.xmax, min(cy), max(cy), min(cz), max(cz))
 
+    @property
+    def rz_bbox(self) -> RZBBox:
+        # Conservative: derive max radial extent from the 3D bbox corners.
+        b = self.bbox
+        rmax = max(abs(b.xmin), abs(b.xmax), abs(b.ymin), abs(b.ymax))
+        return RZBBox(0, rmax, b.zmin, b.zmax)
+
 
 class Cylinder(BaseObject):
     def __init__(self, radius):
@@ -392,6 +523,10 @@ class Cylinder(BaseObject):
         r = self.radius
         return BBox(-r, r, -r, r, -np.inf, np.inf)
 
+    @property
+    def rz_bbox(self) -> RZBBox:
+        return RZBBox(0, self.radius, -np.inf, np.inf)
+
 
 class CylinderZ(Intersection):
     def __init__(self, radius, zmin, zmax):
@@ -402,11 +537,19 @@ class CylinderZ(Intersection):
 
 class CylinderZ_hollow(Diff):
     def __init__(self, radius_outer, radius_inner, zmin, zmax):
+        self._r_inner = radius_inner
+        self._r_outer = radius_outer
+        self._zmin = zmin
+        self._zmax = zmax
         a = CylinderZ(radius_outer, zmin, zmax)
         dz = (zmax - zmin) * 0.75  # some extra space
         z_mid = (zmin + zmax) * 0.5
         b = CylinderZ(radius_inner, z_mid - dz, z_mid + dz)
         super().__init__(a, b)
+
+    @property
+    def rz_bbox(self) -> RZBBox:
+        return RZBBox(self._r_inner, self._r_outer, self._zmin, self._zmax)
 
 
 class Box(BaseObject):
@@ -439,6 +582,10 @@ class Box(BaseObject):
     @property
     def bbox(self):
         return BBox(self.xmin, self.xmax, self.ymin, self.ymax, self.zmin, self.zmax)
+
+    @property
+    def rz_bbox(self) -> RZBBox:
+        return RZBBox(max(0.0, self.xmin), self.xmax, self.zmin, self.zmax)
 
 
 class Torus(BaseObject):
@@ -477,6 +624,10 @@ class Torus(BaseObject):
         return BBox(
             -extent, extent, -extent, extent, self.z0 - self.r, self.z0 + self.r
         )
+
+    @property
+    def rz_bbox(self) -> RZBBox:
+        return RZBBox(self.R - self.r, self.R + self.r, self.z0 - self.r, self.z0 + self.r)
 
 
 class Cone(BaseObject):
@@ -519,6 +670,10 @@ class Cone(BaseObject):
     def bbox(self):
         rmax = max(self.r1, self.r2)
         return BBox(-rmax, rmax, -rmax, rmax, self.z1, self.z2)
+
+    @property
+    def rz_bbox(self) -> RZBBox:
+        return RZBBox(0, max(self.r1, self.r2), self.z1, self.z2)
 
 
 class RoundedCylinderZ(Union):
@@ -600,6 +755,7 @@ class RoundedCylinderZ_hollow(Diff):
         fillet_top=True,
         fillet_bottom=True,
     ):
+        self._r_inner = radius_inner
         # Outer rounded cylinder
         outer = RoundedCylinderZ(
             radius_outer, zmin, zmax, fillet_radius, fillet_top, fillet_bottom
@@ -611,6 +767,11 @@ class RoundedCylinderZ_hollow(Diff):
         inner = CylinderZ(radius_inner, z_mid - dz, z_mid + dz)
 
         super().__init__(outer, inner)
+
+    @property
+    def rz_bbox(self) -> RZBBox:
+        bb = self.a.rz_bbox  # outer rounded cylinder's rz_bbox
+        return RZBBox(self._r_inner, bb.rmax, bb.zmin, bb.zmax)
 
 
 class Geometry:
