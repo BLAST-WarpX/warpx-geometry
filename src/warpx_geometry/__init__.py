@@ -34,6 +34,7 @@ from .plot import (
     create_rz_geometry_mask,
     plot_field2D,
     plot_particles2D,
+    plot_rz_bboxes,
     plot_rz_geometry_components,
 )
 
@@ -69,6 +70,7 @@ __all__ = [
     # Plotting
     "plot_field2D",
     "plot_particles2D",
+    "plot_rz_bboxes",
     "plot_rz_geometry_components",
     "create_rz_geometry_mask",
 ]
