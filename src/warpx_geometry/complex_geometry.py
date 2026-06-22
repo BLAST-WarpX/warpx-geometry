@@ -2,7 +2,7 @@ from . import geometry as g
 
 
 class Einzellens(g.Union):
-    def __init__(self, radius, thickness, length, gap):
+    def __init__(self, radius, thickness, length, gap, name=None, default_voltage=0):
         radius_inner = radius - thickness / 2
         radius_outer = radius + thickness / 2
 
@@ -20,3 +20,9 @@ class Einzellens(g.Union):
 
         tmp = g.Union(a, b)
         super().__init__(tmp, c)
+        self.name = name
+        self.default_voltage = default_voltage
+
+    def collect_named(self, registry: dict) -> None:
+        if self.name is not None:
+            registry[self.name] = self

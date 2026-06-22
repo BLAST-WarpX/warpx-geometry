@@ -175,6 +175,8 @@ class BaseObject:
 
     def __init__(self):
         self.shape = ""
+        self.name: str | None = None
+        self.default_voltage: float | str = 0
 
     def __str__(self):
         return self.normalize()
@@ -191,6 +193,24 @@ class BaseObject:
     def build_expr(self, rz: bool) -> str:
         """Return the WarpX expression string, optionally in RZ-optimized form."""
         return str(self)
+
+    def collect_named(self, registry: dict) -> None:
+        """Populate registry with {name: obj} for all named conductors in this tree."""
+
+    def to_potential_expr(self, voltage, rz: bool, margin: float = 0) -> str:
+        """Return a WarpX potential expression string assigning voltage to this object's region."""
+        if rz:
+            bb = self.rz_bbox.expanded(margin)
+            return (
+                f"(x > {bb.rmin}) * (x < {bb.rmax})"
+                f" * (z > {bb.zmin}) * (z < {bb.zmax}) * ({voltage})"
+            )
+        bb = self.bbox.expanded(margin)
+        return (
+            f"(x > {bb.xmin}) * (x < {bb.xmax})"
+            f" * (y > {bb.ymin}) * (y < {bb.ymax})"
+            f" * (z > {bb.zmin}) * (z < {bb.zmax}) * ({voltage})"
+        )
 
     @property
     def bbox(self):
@@ -212,6 +232,10 @@ class Intersection(BaseObject):
 
     def build_expr(self, rz: bool) -> str:
         return f"({self.a.build_expr(rz)} * {self.b.build_expr(rz)})"
+
+    def collect_named(self, registry: dict) -> None:
+        self.a.collect_named(registry)
+        self.b.collect_named(registry)
 
     def eval(self, x, y, z):
         a_eval = self.a.eval(x, y, z)
@@ -254,6 +278,10 @@ class Union(BaseObject):
     def build_expr(self, rz: bool) -> str:
         return f"(max({self.a.build_expr(rz)}, {self.b.build_expr(rz)}))"
 
+    def collect_named(self, registry: dict) -> None:
+        self.a.collect_named(registry)
+        self.b.collect_named(registry)
+
     def eval(self, x, y, z):
         a_eval = self.a.eval(x, y, z)
         b_eval = self.b.eval(x, y, z)
@@ -295,6 +323,10 @@ class Diff(BaseObject):
     def build_expr(self, rz: bool) -> str:
         return f"(if({self.a.build_expr(rz)}-{self.b.build_expr(rz)} > 0.5, 1, 0))"
 
+    def collect_named(self, registry: dict) -> None:
+        self.a.collect_named(registry)
+        self.b.collect_named(registry)
+
     def eval(self, x, y, z):
         a_eval = self.a.eval(x, y, z)
         b_eval = self.b.eval(x, y, z)
@@ -333,6 +365,9 @@ class Translate(BaseObject):
         s = s.replace("y", f"(y-{self.dy})")
         s = s.replace("z", f"(z-{self.dz})")
         return s
+
+    def collect_named(self, registry: dict) -> None:
+        self.obj.collect_named(registry)
 
     def eval(self, x, y, z):
         return self.obj.eval(x - self.dx, y - self.dy, z - self.dz)
@@ -398,6 +433,9 @@ class Scale(BaseObject):
         if self.sz != 1:
             s = s.replace("z", f"(z/{self.sz})")
         return s
+
+    def collect_named(self, registry: dict) -> None:
+        self.obj.collect_named(registry)
 
     def eval(self, x, y, z):
         return self.obj.eval(x / self.sx, y / self.sy, z / self.sz)
@@ -515,6 +553,9 @@ class Rotate(BaseObject):
             raise ValueError(f"axis must be 'x', 'y', or 'z', got {self.axis!r}")
         return obj_str
 
+    def collect_named(self, registry: dict) -> None:
+        self.obj.collect_named(registry)
+
     def eval(self, x, y, z):
         c, s = np.cos(self.angle), np.sin(self.angle)
         if self.axis == "z":
@@ -558,10 +599,16 @@ class Rotate(BaseObject):
 
 
 class Cylinder(BaseObject):
-    def __init__(self, radius):
+    def __init__(self, radius, name=None, default_voltage=0):
         super().__init__()
         self.radius = radius
+        self.name = name
+        self.default_voltage = default_voltage
         self.shape = f"({self.radius}**2 - (x**2 + y**2))"
+
+    def collect_named(self, registry: dict) -> None:
+        if self.name is not None:
+            registry[self.name] = self
 
     def eval(self, x, y, z):
         val = self.radius**2 - (x**2 + y**2)
@@ -584,14 +631,20 @@ class Cylinder(BaseObject):
 
 
 class CylinderZ(Intersection):
-    def __init__(self, radius, zmin, zmax):
+    def __init__(self, radius, zmin, zmax, name=None, default_voltage=0):
         a = Cylinder(radius)
         b = Box(-2 * radius, 2 * radius, -2 * radius, 2 * radius, zmin, zmax)
         super().__init__(a, b)
+        self.name = name
+        self.default_voltage = default_voltage
+
+    def collect_named(self, registry: dict) -> None:
+        if self.name is not None:
+            registry[self.name] = self
 
 
 class CylinderZ_hollow(Diff):
-    def __init__(self, radius_outer, radius_inner, zmin, zmax):
+    def __init__(self, radius_outer, radius_inner, zmin, zmax, name=None, default_voltage=0):
         self._r_inner = radius_inner
         self._r_outer = radius_outer
         self._zmin = zmin
@@ -601,6 +654,12 @@ class CylinderZ_hollow(Diff):
         z_mid = (zmin + zmax) * 0.5
         b = CylinderZ(radius_inner, z_mid - dz, z_mid + dz)
         super().__init__(a, b)
+        self.name = name
+        self.default_voltage = default_voltage
+
+    def collect_named(self, registry: dict) -> None:
+        if self.name is not None:
+            registry[self.name] = self
 
     def build_expr(self, rz: bool) -> str:
         if rz:
@@ -616,8 +675,10 @@ class CylinderZ_hollow(Diff):
 
 
 class Box(BaseObject):
-    def __init__(self, xmin, xmax, ymin, ymax, zmin, zmax):
+    def __init__(self, xmin, xmax, ymin, ymax, zmin, zmax, name=None, default_voltage=0):
         super().__init__()
+        self.name = name
+        self.default_voltage = default_voltage
         self.xmin = xmin
         self.xmax = xmax
         self.ymin = ymin
@@ -654,6 +715,10 @@ class Box(BaseObject):
     def bbox(self):
         return BBox(self.xmin, self.xmax, self.ymin, self.ymax, self.zmin, self.zmax)
 
+    def collect_named(self, registry: dict) -> None:
+        if self.name is not None:
+            registry[self.name] = self
+
     @property
     def rz_bbox(self) -> RZBBox:
         return RZBBox(max(0.0, self.xmin), self.xmax, self.zmin, self.zmax)
@@ -673,8 +738,10 @@ class Torus(BaseObject):
         torus = Torus(major_radius=0.010, minor_radius=0.001, z_center=0.1)
     """
 
-    def __init__(self, major_radius, minor_radius, z_center=0):
+    def __init__(self, major_radius, minor_radius, z_center=0, name=None, default_voltage=0):
         super().__init__()
+        self.name = name
+        self.default_voltage = default_voltage
         self.R = major_radius
         self.r = minor_radius
         self.z0 = z_center
@@ -696,6 +763,10 @@ class Torus(BaseObject):
             -extent, extent, -extent, extent, self.z0 - self.r, self.z0 + self.r
         )
 
+    def collect_named(self, registry: dict) -> None:
+        if self.name is not None:
+            registry[self.name] = self
+
     @property
     def rz_bbox(self) -> RZBBox:
         return RZBBox(self.R - self.r, self.R + self.r, self.z0 - self.r, self.z0 + self.r)
@@ -713,8 +784,10 @@ class Cone(BaseObject):
         cone = Cone(z1=0.0, z2=0.1, r1=0.010, r2=0.005)
     """
 
-    def __init__(self, z1, z2, r1, r2):
+    def __init__(self, z1, z2, r1, r2, name=None, default_voltage=0):
         super().__init__()
+        self.name = name
+        self.default_voltage = default_voltage
         self.z1 = z1
         self.z2 = z2
         self.r1 = r1
@@ -742,6 +815,10 @@ class Cone(BaseObject):
         rmax = max(self.r1, self.r2)
         return BBox(-rmax, rmax, -rmax, rmax, self.z1, self.z2)
 
+    def collect_named(self, registry: dict) -> None:
+        if self.name is not None:
+            registry[self.name] = self
+
     @property
     def rz_bbox(self) -> RZBBox:
         return RZBBox(0, max(self.r1, self.r2), self.z1, self.z2)
@@ -763,7 +840,8 @@ class RoundedCylinderZ(Union):
     """
 
     def __init__(
-        self, radius, zmin, zmax, fillet_radius, fillet_top=True, fillet_bottom=True
+        self, radius, zmin, zmax, fillet_radius, fillet_top=True, fillet_bottom=True,
+        name=None, default_voltage=0
     ):
         # Main cylinder body (reduced height to accommodate fillets)
         z_body_min = zmin + (fillet_radius if fillet_bottom else 0)
@@ -796,6 +874,12 @@ class RoundedCylinderZ(Union):
             result = Union(result, part)
 
         super().__init__(result.a, result.b)
+        self.name = name
+        self.default_voltage = default_voltage
+
+    def collect_named(self, registry: dict) -> None:
+        if self.name is not None:
+            registry[self.name] = self
 
 
 class RoundedCylinderZ_hollow(Diff):
@@ -825,6 +909,8 @@ class RoundedCylinderZ_hollow(Diff):
         fillet_radius,
         fillet_top=True,
         fillet_bottom=True,
+        name=None,
+        default_voltage=0,
     ):
         self._r_inner = radius_inner
         # Outer rounded cylinder
@@ -838,6 +924,12 @@ class RoundedCylinderZ_hollow(Diff):
         inner = CylinderZ(radius_inner, z_mid - dz, z_mid + dz)
 
         super().__init__(outer, inner)
+        self.name = name
+        self.default_voltage = default_voltage
+
+    def collect_named(self, registry: dict) -> None:
+        if self.name is not None:
+            registry[self.name] = self
 
     @property
     def rz_bbox(self) -> RZBBox:
@@ -849,6 +941,8 @@ class Geometry:
     def __init__(self, obj, rz: bool = False):
         self.object = obj
         self.rz = rz
+        self.conductors: dict = {}
+        self.object.collect_named(self.conductors)
 
     def build_eb_expr(self) -> str:
         """Return the WarpX embedded-boundary expression string."""
@@ -863,6 +957,53 @@ class Geometry:
 
     def eval(self, x, y, z):
         return self.object.eval(x, y, z)
+
+    def to_potential_expr(self, volt_dict=None, margin: float = 0) -> str:
+        """Return a combined WarpX potential expression for all named conductors.
+
+        Args:
+            volt_dict: mapping of conductor name → voltage (number or string).
+                Missing names use the conductor's default_voltage.
+            margin: expand each bbox by this amount (m) before generating the
+                region mask. Helps ensure grid points overlap the conductor.
+
+        Returns:
+            Combined potential expression string, or "0" if all voltages are zero.
+        """
+        if volt_dict is None:
+            volt_dict = {}
+
+        parts = []
+        bboxes = []
+        for name, obj in self.conductors.items():
+            voltage = volt_dict.get(name, obj.default_voltage)
+            # Skip purely numeric zeros
+            try:
+                if float(voltage) == 0.0:
+                    continue
+            except (TypeError, ValueError):
+                pass  # string voltages are never skipped
+            parts.append(obj.to_potential_expr(voltage, rz=self.rz, margin=margin))
+            bboxes.append(
+                obj.rz_bbox.expanded(margin) if self.rz else obj.bbox.expanded(margin)
+            )
+
+        if not parts:
+            return "0"
+
+        # If any pair of expanded bboxes overlaps, use max() to avoid double-counting
+        use_max = any(
+            bboxes_overlap(bboxes[i], bboxes[j])
+            for i in range(len(bboxes))
+            for j in range(i + 1, len(bboxes))
+        )
+
+        if use_max:
+            result = parts[0]
+            for p in parts[1:]:
+                result = f"max({result}, {p})"
+            return result
+        return " + ".join(parts)
 
     def plot(self, xmin, xmax, Nx, ymin, ymax, Ny, zmin, zmax, Nz):
         x = np.linspace(xmin, xmax, Nx)
