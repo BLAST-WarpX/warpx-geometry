@@ -188,6 +188,10 @@ class BaseObject:
     def normalize(self):
         return f"(if({self.shape} > 0, 1, 0))"
 
+    def build_expr(self, rz: bool) -> str:
+        """Return the WarpX expression string, optionally in RZ-optimized form."""
+        return str(self)
+
     @property
     def bbox(self):
         raise NotImplementedError(f"{type(self).__name__} must implement bbox")
@@ -205,6 +209,9 @@ class Intersection(BaseObject):
 
     def __str__(self):
         return f"({self.a} * {self.b})"
+
+    def build_expr(self, rz: bool) -> str:
+        return f"({self.a.build_expr(rz)} * {self.b.build_expr(rz)})"
 
     def eval(self, x, y, z):
         a_eval = self.a.eval(x, y, z)
@@ -244,6 +251,9 @@ class Union(BaseObject):
     def __str__(self):
         return f"(max({self.a}, {self.b}))"
 
+    def build_expr(self, rz: bool) -> str:
+        return f"(max({self.a.build_expr(rz)}, {self.b.build_expr(rz)}))"
+
     def eval(self, x, y, z):
         a_eval = self.a.eval(x, y, z)
         b_eval = self.b.eval(x, y, z)
@@ -282,6 +292,9 @@ class Diff(BaseObject):
     def __str__(self):
         return f"(if({self.a}-{self.b} > 0.5, 1, 0))"
 
+    def build_expr(self, rz: bool) -> str:
+        return f"(if({self.a.build_expr(rz)}-{self.b.build_expr(rz)} > 0.5, 1, 0))"
+
     def eval(self, x, y, z):
         a_eval = self.a.eval(x, y, z)
         b_eval = self.b.eval(x, y, z)
@@ -309,6 +322,13 @@ class Translate(BaseObject):
 
     def __str__(self):
         s = str(self.obj)
+        s = s.replace("x", f"(x-{self.dx})")
+        s = s.replace("y", f"(y-{self.dy})")
+        s = s.replace("z", f"(z-{self.dz})")
+        return s
+
+    def build_expr(self, rz: bool) -> str:
+        s = self.obj.build_expr(rz)
         s = s.replace("x", f"(x-{self.dx})")
         s = s.replace("y", f"(y-{self.dy})")
         s = s.replace("z", f"(z-{self.dz})")
@@ -367,6 +387,16 @@ class Scale(BaseObject):
         s = s.replace("x", f"(x/{self.sx})")
         s = s.replace("y", f"(y/{self.sy})")
         s = s.replace("z", f"(z/{self.sz})")
+        return s
+
+    def build_expr(self, rz: bool) -> str:
+        s = self.obj.build_expr(rz)
+        if self.sx != 1:
+            s = s.replace("x", f"(x/{self.sx})")
+        if self.sy != 1:
+            s = s.replace("y", f"(y/{self.sy})")
+        if self.sz != 1:
+            s = s.replace("z", f"(z/{self.sz})")
         return s
 
     def eval(self, x, y, z):
@@ -465,6 +495,26 @@ class Rotate(BaseObject):
             raise ValueError(f"axis must be 'x', 'y', or 'z', got {self.axis!r}")
         return obj_str
 
+    def build_expr(self, rz: bool) -> str:
+        c = float(np.cos(self.angle))
+        s = float(np.sin(self.angle))
+        obj_str = self.obj.build_expr(rz)
+        if self.axis == "z":
+            obj_str = obj_str.replace("x", "__X__").replace("y", "__Y__")
+            obj_str = obj_str.replace("__X__", f"({c}*x+{s}*y)")
+            obj_str = obj_str.replace("__Y__", f"({-s}*x+{c}*y)")
+        elif self.axis == "y":
+            obj_str = obj_str.replace("x", "__X__").replace("z", "__Z__")
+            obj_str = obj_str.replace("__X__", f"({c}*x+{s}*z)")
+            obj_str = obj_str.replace("__Z__", f"({-s}*x+{c}*z)")
+        elif self.axis == "x":
+            obj_str = obj_str.replace("y", "__Y__").replace("z", "__Z__")
+            obj_str = obj_str.replace("__Y__", f"({c}*y+{s}*z)")
+            obj_str = obj_str.replace("__Z__", f"({-s}*y+{c}*z)")
+        else:
+            raise ValueError(f"axis must be 'x', 'y', or 'z', got {self.axis!r}")
+        return obj_str
+
     def eval(self, x, y, z):
         c, s = np.cos(self.angle), np.sin(self.angle)
         if self.axis == "z":
@@ -523,6 +573,11 @@ class Cylinder(BaseObject):
         r = self.radius
         return BBox(-r, r, -r, r, -np.inf, np.inf)
 
+    def build_expr(self, rz: bool) -> str:
+        if rz:
+            return f"(if({self.radius}**2 - x**2 > 0, 1, 0))"
+        return str(self)
+
     @property
     def rz_bbox(self) -> RZBBox:
         return RZBBox(0, self.radius, -np.inf, np.inf)
@@ -546,6 +601,14 @@ class CylinderZ_hollow(Diff):
         z_mid = (zmin + zmax) * 0.5
         b = CylinderZ(radius_inner, z_mid - dz, z_mid + dz)
         super().__init__(a, b)
+
+    def build_expr(self, rz: bool) -> str:
+        if rz:
+            return (
+                f"(x > {self._r_inner}) * (x < {self._r_outer})"
+                f" * (z > {self._zmin}) * (z < {self._zmax})"
+            )
+        return str(self)
 
     @property
     def rz_bbox(self) -> RZBBox:
@@ -578,6 +641,14 @@ class Box(BaseObject):
         # Convert to float, handling both scalar and array inputs
         val = np.asarray(val, dtype=float)
         return val
+
+    def build_expr(self, rz: bool) -> str:
+        if rz:
+            return (
+                f"((x>{self.xmin})*(x<{self.xmax})"
+                f"*(z>{self.zmin})*(z<{self.zmax}))"
+            )
+        return str(self)
 
     @property
     def bbox(self):
@@ -775,11 +846,20 @@ class RoundedCylinderZ_hollow(Diff):
 
 
 class Geometry:
-    def __init__(self, obj):
+    def __init__(self, obj, rz: bool = False):
         self.object = obj
+        self.rz = rz
+
+    def build_eb_expr(self) -> str:
+        """Return the WarpX embedded-boundary expression string."""
+        return f"({self.object.build_expr(rz=self.rz)}-0.5)"
 
     def __str__(self):
-        return f"({self.object}-0.5)"
+        return self.build_eb_expr()
+
+    @property
+    def rz_bbox(self):
+        return self.object.rz_bbox
 
     def eval(self, x, y, z):
         return self.object.eval(x, y, z)
