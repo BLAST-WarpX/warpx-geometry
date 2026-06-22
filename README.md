@@ -266,6 +266,141 @@ WarpX uses the following convention for embedded boundaries:
 
 This package handles this automatically when you use the `Geometry` wrapper.
 
+## Voltage Assignment (Named Conductors)
+
+Each shape can be given a `name` and optional `default_voltage`.  
+A `Geometry` object collects all named shapes into a `conductors` dict and can generate
+a WarpX-compatible potential expression via `to_potential_expr`.
+
+```python
+from warpx_geometry import CylinderZ_hollow, Geometry, Union
+
+# Build a multi-electrode system — give each conductor a name
+ring_0 = CylinderZ_hollow(
+    radius_outer=0.067, radius_inner=0.051,
+    zmin=-0.001, zmax=0.001,
+    name="ring_0", default_voltage=1600,
+)
+ring_1 = CylinderZ_hollow(
+    radius_outer=0.067, radius_inner=0.051,
+    zmin=0.010, zmax=0.012,
+    name="ring_1", default_voltage=800,
+)
+tube = CylinderZ_hollow(
+    radius_outer=0.100, radius_inner=0.080,
+    zmin=-0.1, zmax=0.2,
+    name="outer_cyl", default_voltage=0,  # always grounded
+)
+
+geo = Geometry(Union(Union(ring_0, ring_1), tube), rz=True)
+
+# List the conductors the Geometry found
+print(geo.conductors.keys())
+# dict_keys(['ring_0', 'ring_1', 'outer_cyl'])
+
+# Generate EB (embedded boundary) expression for WarpX
+eb_expr = str(geo)
+
+# Generate potential expression using default voltages
+pot_expr = geo.to_potential_expr()
+
+# Override voltages at call time (e.g. time-varying string expressions)
+pot_expr = geo.to_potential_expr({
+    "ring_0": "1600 * pulse(t)",
+    "ring_1": "800 * pulse(t)",
+})
+# Zero-voltage conductors are automatically omitted.
+# Non-overlapping conductors use "+"; overlapping bboxes use "max()".
+```
+
+### `to_potential_expr` with a margin
+
+Each named conductor's voltage region is derived from its bounding box.
+Pass `margin` (in metres) to expand the region — useful when the grid spacing
+means the ring boundary might not align exactly with a grid point:
+
+```python
+# Expand each region by 2 mm so at least a few grid cells overlap
+pot_expr = geo.to_potential_expr({"ring_0": 1600}, margin=0.002)
+```
+
+## Bounding Boxes
+
+Every shape exposes a `rz_bbox` property that returns an `RZBBox(rmin, rmax, zmin, zmax)`.
+
+```python
+from warpx_geometry import CylinderZ_hollow, RZBBox, bboxes_overlap
+
+ring = CylinderZ_hollow(
+    radius_outer=0.067, radius_inner=0.051,
+    zmin=-0.001, zmax=0.001,
+)
+
+bb = ring.rz_bbox          # RZBBox(rmin=0.051, rmax=0.067, zmin=-0.001, zmax=0.001)
+bb_exp = bb.expanded(0.002)  # RZBBox(rmin=0.049, rmax=0.069, zmin=-0.003, zmax=0.003)
+
+# Check whether two bboxes overlap (touching counts as NOT overlapping)
+from warpx_geometry import CylinderZ_hollow, bboxes_overlap
+a = CylinderZ_hollow(0.067, 0.051, 0.000, 0.010, name="a")
+b = CylinderZ_hollow(0.067, 0.051, 0.010, 0.020, name="b")  # touching at z=0.010
+print(bboxes_overlap(a.rz_bbox, b.rz_bbox))   # False — touching is not overlap
+print(bboxes_overlap(a.rz_bbox.expanded(0.001), b.rz_bbox.expanded(0.001)))  # True
+```
+
+### Bounding Box Plotting
+
+`plot_rz_bboxes` overlays bounding-box rectangles on an existing RZ axis.
+You can call it directly or use the `bbox_margin` parameter of
+`plot_rz_geometry_components` to get geometry and bboxes in one call.
+
+```python
+from warpx_geometry import (
+    CylinderZ_hollow, plot_rz_geometry_components, plot_rz_bboxes
+)
+import matplotlib.pyplot as plt
+
+ring = CylinderZ_hollow(0.067, 0.051, -0.001, 0.001, name="ring_0")
+tube = CylinderZ_hollow(0.100, 0.080, -0.1,    0.2,   name="outer_cyl")
+
+components = {
+    "ring_0":    (ring, "red"),
+    "outer_cyl": (tube, "gray"),
+}
+
+fig, ax = plt.subplots()
+
+# Plot geometry + bboxes in one call
+# bbox_margin=0 → exact bboxes; bbox_margin=0.002 → expanded by 2mm
+plot_rz_geometry_components(
+    ax, components,
+    z_range=(-0.1, 0.2), r_range=(0.0, 0.11),
+    bbox_margin=0,          # show unexpanded bboxes
+    bbox_kwargs={"linestyle": "--", "linewidth": 1},
+)
+
+ax.set_xlabel("z (mm)")
+ax.set_ylabel("r (mm)")
+plt.show()
+```
+
+To show expanded bboxes separately (e.g. to visualise the potential regions used
+by `to_potential_expr`):
+
+```python
+margin = 0.002  # same margin passed to to_potential_expr
+
+# Geometry without bboxes
+plot_rz_geometry_components(ax, components, z_range=(-0.1, 0.2), r_range=(0.0, 0.11))
+
+# Overlay expanded bboxes — dashed rectangles, same colour as each component
+plot_rz_bboxes(ax, components, margin=margin,
+               bbox_kwargs={"linestyle": ":", "linewidth": 2, "alpha": 0.5})
+```
+
+`bbox_kwargs` accepts any keyword argument understood by
+`matplotlib.patches.Rectangle` (e.g. `fill`, `facecolor`, `edgecolor`,
+`linestyle`, `linewidth`, `alpha`).
+
 ## Available Shapes
 
 ### Basic Shapes

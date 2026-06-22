@@ -60,6 +60,8 @@ src/warpx_geometry/
 - **`Geometry`**: Wrapper that converts to WarpX format
   - Subtracts 0.5 from values for WarpX convention
   - `str(Geometry(obj))` gives WarpX-ready function string
+  - `rz=True`: enables RZ-optimised expressions and conductor registry
+  - `geo.conductors`: dict of named shapes (see Voltage Assignment below)
 
 ## Common Development Patterns
 
@@ -90,8 +92,10 @@ class Sphere(BaseObject):
 
 1. Subclass an operation (usually `Union` or `Diff`)
 2. Build from existing shapes in `__init__`
-3. Call `super().__init__()` with the composed geometry
-4. Add to `complex_geometry.py`
+3. Call `super().__init__()` with the composed geometry — then set `self.name` and
+   `self.default_voltage` **after** `super().__init__()` (the base class resets them)
+4. Override `collect_named` if the class should register itself when named
+5. Add to `complex_geometry.py`
 
 ### RZ-Specific Considerations
 
@@ -102,19 +106,32 @@ When working with RZ geometry:
 - Test with `R, Z = np.meshgrid(r_vals, z_vals, indexing='ij')`
 - Use `X = R, Y = np.zeros_like(R)` for evaluation
 
+### name / default_voltage on shape classes
+
+Shape-leaf classes (`CylinderZ_hollow`, `CylinderZ`, `Einzellens`, …) accept
+`name` and `default_voltage` kwargs. Structural classes (`Union`, `Diff`, …) do not.
+
+**Critical**: for compound-based shapes, set `self.name` / `self.default_voltage`
+**after** `super().__init__()`, because `BaseObject.__init__()` resets them to
+`None` / `0`:
+
+```python
+class MyShape(Diff):
+    def __init__(self, ..., name=None, default_voltage=0):
+        ...
+        super().__init__(a, b)   # resets name/default_voltage
+        self.name = name         # set AFTER super()
+        self.default_voltage = default_voltage
+```
+
 ### Testing
 
-Tests are organized by coordinate system:
+Tests are organised by coordinate system:
 - `test_xyz_geometry.py`: Full 3D Cartesian tests
 - `test_rz_geometry.py`: RZ cylindrical coordinate tests
-
-Each test file has sections:
-- Basic shapes (individual primitives)
-- Boolean operations (Union, Diff, Intersection)
-- Transformations (Translate, etc.)
-- Advanced shapes (composite objects)
-- Complex geometries (Einzellens, etc.)
-- Array/meshgrid evaluation
+- `test_rz_bbox.py`: RZBBox, BBox.expanded, bboxes_overlap
+- `test_build_expr.py`: build_expr(rz) for all shapes
+- `test_potential.py`: name/default_voltage, collect_named, to_potential_expr
 
 ## Working with the Codebase
 
@@ -211,18 +228,143 @@ When helping users integrate with WarpX:
 1. **Geometry function string**: `str(Geometry(obj))` produces WarpX-ready function
 2. **Coordinate system**: Ensure user's simulation type (XYZ vs RZ) matches geometry
 3. **Units**: WarpX typically uses SI units (meters), examples use mm/m
-4. **Boundary conditions**: The geometry defines conductor shape, user sets voltage separately
+4. **Boundary conditions**: The geometry defines conductor shape; use `to_potential_expr`
+   to generate the corresponding potential function string (see Voltage Assignment below)
 
-## Future Enhancements (TODO from code)
+---
 
-From `geometry.py` docstring:
-- Rotation support (currently only Translation)
-- Better Translate implementation (to avoid string replacement issues)
-- Intersection operation (partially implemented)
-- Clone/copy functionality
-- Color by voltage or object group
-- 2D cut plotting with alpha regions for voltages
-- Higher resolution plotting options
+## Voltage Assignment (Named Conductors)
+
+### How it works
+
+Give each shape a `name` when constructing it. `Geometry` traverses the tree and
+collects named shapes into `geo.conductors`. Then call `geo.to_potential_expr()` to
+produce a WarpX-compatible potential string.
+
+```python
+from warpx_geometry import CylinderZ_hollow, Geometry, Union
+
+ring_0 = CylinderZ_hollow(
+    radius_outer=0.067, radius_inner=0.051,
+    zmin=-0.0005, zmax=0.0005,
+    name="ring_0", default_voltage=1600,
+)
+ring_1 = CylinderZ_hollow(
+    radius_outer=0.067, radius_inner=0.051,
+    zmin=0.0095, zmax=0.0105,
+    name="ring_1", default_voltage=800,
+)
+tube = CylinderZ_hollow(
+    radius_outer=0.100, radius_inner=0.080,
+    zmin=-0.1, zmax=0.2,
+    name="outer_cyl",   # default_voltage=0 → skipped automatically
+)
+
+geo = Geometry(Union(Union(ring_0, ring_1), tube), rz=True)
+
+# Inspect conductors
+print(geo.conductors.keys())
+# dict_keys(['ring_0', 'ring_1', 'outer_cyl'])
+
+# EB expression
+eb_expr = str(geo)
+
+# Potential: use default voltages
+pot = geo.to_potential_expr()
+
+# Override at call time
+pot = geo.to_potential_expr({"ring_0": 1600, "ring_1": 800})
+
+# Time-varying: string is inserted verbatim
+pot = geo.to_potential_expr({"ring_0": "1600 * pulse(t)"})
+```
+
+Rules applied automatically by `to_potential_expr`:
+- Conductors whose effective voltage is `0` are **skipped**.
+- If any pair of (expanded) bboxes overlaps → `max(…)` combination; otherwise `+`.
+
+### Margin
+
+Expand each conductor's voltage region by `margin` metres — useful when the grid
+is coarser than the ring thickness:
+
+```python
+pot = geo.to_potential_expr({"ring_0": 1600}, margin=0.002)
+```
+
+---
+
+## Bounding Boxes
+
+```python
+bb = ring_0.rz_bbox
+# RZBBox(rmin=0.051, rmax=0.067, zmin=-0.0005, zmax=0.0005)
+
+bb_exp = bb.expanded(0.002)
+# RZBBox(rmin=0.049, rmax=0.069, zmin=-0.0025, zmax=0.0025)
+
+# Full-geometry bbox
+full_bb = geo.rz_bbox
+```
+
+### Overlap check
+
+```python
+from warpx_geometry import bboxes_overlap
+
+a_bb = geo.conductors["ring_0"].rz_bbox.expanded(0.002)
+b_bb = geo.conductors["ring_1"].rz_bbox.expanded(0.002)
+print(bboxes_overlap(a_bb, b_bb))   # True / False
+# Touching boundaries (a_bb.zmax == b_bb.zmin) → False (strict inequality)
+```
+
+---
+
+## Bounding Box Plotting
+
+### Option A — via `plot_rz_geometry_components`
+
+```python
+import matplotlib.pyplot as plt
+from warpx_geometry import plot_rz_geometry_components
+
+components = {
+    "ring_0":    (ring_0, "red"),
+    "outer_cyl": (tube,   "gray"),
+}
+
+fig, ax = plt.subplots(figsize=(12, 4))
+plot_rz_geometry_components(
+    ax, components,
+    z_range=(-0.1, 0.2), r_range=(0.0, 0.11),
+    bbox_margin=0.002,   # same margin as to_potential_expr
+    bbox_kwargs={"linestyle": "--", "linewidth": 1.5},
+)
+ax.set_xlabel("z (mm)"); ax.set_ylabel("r (mm)")
+plt.show()
+```
+
+### Option B — standalone `plot_rz_bboxes`
+
+Use this to overlay bboxes on an existing plot (e.g. a field map):
+
+```python
+from warpx_geometry import plot_rz_bboxes
+
+# ax already contains a background (contourf / imshow)
+plot_rz_bboxes(
+    ax, components,
+    margin=0.002,
+    unit_scale=1000,     # m → mm (must match axis units)
+    bbox_kwargs={"linestyle": ":", "linewidth": 2, "alpha": 0.4},
+)
+```
+
+`bbox_kwargs` accepts any `matplotlib.patches.Rectangle` keyword
+(`fill`, `facecolor`, `edgecolor`, `linestyle`, `linewidth`, `alpha`, …).
+Infinite bounds are clipped to the current axis limits automatically.
+
+---
 
 ## Questions to Ask Users
 
@@ -260,6 +402,24 @@ When a user asks for help:
 4. Create tests for RZ if applicable
 5. Add to `__init__.py` exports
 6. Update README with example
+
+### "Set up voltages on a multi-electrode system"
+
+1. Confirm each electrode has a `name` kwarg at construction
+2. Wrap the combined geometry in `Geometry(..., rz=True)`
+3. Call `geo.to_potential_expr(volt_dict, margin=...)` for the potential string
+4. Use `str(geo)` for the EB expression
+5. Optionally call `plot_rz_geometry_components(..., bbox_margin=...)` to verify regions
+
+## Future Enhancements (TODO from code)
+
+From `geometry.py` docstring:
+- Rotation support (currently only Translation)
+- Better Translate implementation (to avoid string replacement issues)
+- Clone/copy functionality
+- Color by voltage or object group
+- 2D cut plotting with alpha regions for voltages
+- Higher resolution plotting options
 
 ## Contact and Resources
 
