@@ -198,8 +198,6 @@ class TestTransformations:
 
     def test_translate_xyz(self):
         """Test translation in all directions."""
-        # Note: Translate only works on basic shapes with simple .shape attribute
-        # CylinderZ is a composite (Intersection), so use basic Cylinder
         cyl = Cylinder(radius=0.01)
         cyl_trans = Translate(cyl, x=0.01, y=0.02, z=0.0)
         # Check translated position

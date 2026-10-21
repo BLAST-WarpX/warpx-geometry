@@ -35,9 +35,6 @@ shapes:
 * cone
 *
 * ROTATION
-* TRANSLATE (problem with replace and search is that x in max will also be
-  replaced). Need to do TRANSLATE similar to eval, e.g. only on most basic
-  structures and then with better regexp)
 * Add tests
 
 * plot 2d cuts? Add alpha regions for voltages
@@ -174,12 +171,11 @@ class BaseObject:
     """A BaseObject for geometries in warpX."""
 
     def __init__(self):
-        self.shape = ""
         self.name: str | None = None
         self.default_voltage: float | str = 0
 
     def __str__(self):
-        return self.normalize()
+        return self.build_expr(rz=False)
 
     def __add__(self, other):
         return Union(self, other)
@@ -187,12 +183,25 @@ class BaseObject:
     def __sub__(self, other):
         return Diff(self, other)
 
-    def normalize(self):
-        return f"(if({self.shape} > 0, 1, 0))"
+    def shape_expr(self, x="x", y="y", z="z") -> str:
+        """Return the raw shape expression (> 0 inside) in the given coordinates."""
+        raise NotImplementedError(f"{type(self).__name__} must implement shape_expr")
 
-    def build_expr(self, rz: bool) -> str:
-        """Return the WarpX expression string, optionally in RZ-optimized form."""
-        return str(self)
+    @property
+    def shape(self) -> str:
+        return self.shape_expr()
+
+    def normalize(self, x="x", y="y", z="z"):
+        return f"(if({self.shape_expr(x, y, z)} > 0, 1, 0))"
+
+    def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
+        """Return the WarpX expression string, optionally in RZ-optimized form.
+
+        x, y, z are the coordinate expressions to evaluate the shape at.
+        Transforms (Translate, Scale, Rotate) pass modified coordinates down
+        the tree instead of rewriting the finished string, mirroring eval().
+        """
+        return self.normalize(x, y, z)
 
     def collect_named(self, registry: dict) -> None:
         """Populate registry with {name: obj} for all named conductors in this tree."""
@@ -227,11 +236,10 @@ class Intersection(BaseObject):
         self.a = a
         self.b = b
 
-    def __str__(self):
-        return f"({self.a} * {self.b})"
-
-    def build_expr(self, rz: bool) -> str:
-        return f"({self.a.build_expr(rz)} * {self.b.build_expr(rz)})"
+    def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
+        a = self.a.build_expr(rz, x, y, z)
+        b = self.b.build_expr(rz, x, y, z)
+        return f"({a} * {b})"
 
     def collect_named(self, registry: dict) -> None:
         self.a.collect_named(registry)
@@ -272,11 +280,10 @@ class Union(BaseObject):
         self.a = a
         self.b = b
 
-    def __str__(self):
-        return f"(max({self.a}, {self.b}))"
-
-    def build_expr(self, rz: bool) -> str:
-        return f"(max({self.a.build_expr(rz)}, {self.b.build_expr(rz)}))"
+    def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
+        a = self.a.build_expr(rz, x, y, z)
+        b = self.b.build_expr(rz, x, y, z)
+        return f"(max({a}, {b}))"
 
     def collect_named(self, registry: dict) -> None:
         self.a.collect_named(registry)
@@ -317,11 +324,10 @@ class Diff(BaseObject):
         self.a = a
         self.b = b
 
-    def __str__(self):
-        return f"(if({self.a}-{self.b} > 0.5, 1, 0))"
-
-    def build_expr(self, rz: bool) -> str:
-        return f"(if({self.a.build_expr(rz)}-{self.b.build_expr(rz)} > 0.5, 1, 0))"
+    def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
+        a = self.a.build_expr(rz, x, y, z)
+        b = self.b.build_expr(rz, x, y, z)
+        return f"(if({a}-{b} > 0.5, 1, 0))"
 
     def collect_named(self, registry: dict) -> None:
         self.a.collect_named(registry)
@@ -344,6 +350,21 @@ class Diff(BaseObject):
         return self.a.rz_bbox
 
 
+def _shift(coord: str, offset) -> str:
+    """Return the expression for coord - offset, avoiding a double minus."""
+    if offset == 0:
+        return coord
+    if offset < 0:
+        return f"({coord}+{-offset})"
+    return f"({coord}-{offset})"
+
+
+def _lincomb(a, u: str, b, v: str) -> str:
+    """Return the expression for a*u + b*v, writing a negative b as a subtraction."""
+    op = "-" if b < 0 else "+"
+    return f"({a}*{u}{op}{abs(b)}*{v})"
+
+
 class Translate(BaseObject):
     def __init__(self, obj, x=0, y=0, z=0):
         super().__init__()
@@ -352,19 +373,10 @@ class Translate(BaseObject):
         self.dy = y
         self.dz = z
 
-    def __str__(self):
-        s = str(self.obj)
-        s = s.replace("x", f"(x-{self.dx})")
-        s = s.replace("y", f"(y-{self.dy})")
-        s = s.replace("z", f"(z-{self.dz})")
-        return s
-
-    def build_expr(self, rz: bool) -> str:
-        s = self.obj.build_expr(rz)
-        s = s.replace("x", f"(x-{self.dx})")
-        s = s.replace("y", f"(y-{self.dy})")
-        s = s.replace("z", f"(z-{self.dz})")
-        return s
+    def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
+        return self.obj.build_expr(
+            rz, _shift(x, self.dx), _shift(y, self.dy), _shift(z, self.dz)
+        )
 
     def collect_named(self, registry: dict) -> None:
         self.obj.collect_named(registry)
@@ -417,22 +429,14 @@ class Scale(BaseObject):
         self.sy = sy
         self.sz = sz
 
-    def __str__(self):
-        s = str(self.obj)
-        s = s.replace("x", f"(x/{self.sx})")
-        s = s.replace("y", f"(y/{self.sy})")
-        s = s.replace("z", f"(z/{self.sz})")
-        return s
-
-    def build_expr(self, rz: bool) -> str:
-        s = self.obj.build_expr(rz)
+    def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
         if self.sx != 1:
-            s = s.replace("x", f"(x/{self.sx})")
+            x = f"({x}/{self.sx})"
         if self.sy != 1:
-            s = s.replace("y", f"(y/{self.sy})")
+            y = f"({y}/{self.sy})"
         if self.sz != 1:
-            s = s.replace("z", f"(z/{self.sz})")
-        return s
+            z = f"({z}/{self.sz})"
+        return self.obj.build_expr(rz, x, y, z)
 
     def collect_named(self, registry: dict) -> None:
         self.obj.collect_named(registry)
@@ -510,48 +514,18 @@ class Rotate(BaseObject):
         self.angle = angle
         self.axis = axis
 
-    def __str__(self):
+    def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
         c = float(np.cos(self.angle))
         s = float(np.sin(self.angle))
-        obj_str = str(self.obj)
         if self.axis == "z":
-            # Simultaneous substitution via placeholders to prevent double-replacement
-            # (replacing x first would put y into the expression; y replacement
-            # would then also corrupt those newly introduced y terms)
-            obj_str = obj_str.replace("x", "__X__").replace("y", "__Y__")
-            obj_str = obj_str.replace("__X__", f"({c}*x+{s}*y)")
-            obj_str = obj_str.replace("__Y__", f"({-s}*x+{c}*y)")
+            x, y = _lincomb(c, x, s, y), _lincomb(-s, x, c, y)
         elif self.axis == "y":
-            obj_str = obj_str.replace("x", "__X__").replace("z", "__Z__")
-            obj_str = obj_str.replace("__X__", f"({c}*x+{s}*z)")
-            obj_str = obj_str.replace("__Z__", f"({-s}*x+{c}*z)")
+            x, z = _lincomb(c, x, s, z), _lincomb(-s, x, c, z)
         elif self.axis == "x":
-            obj_str = obj_str.replace("y", "__Y__").replace("z", "__Z__")
-            obj_str = obj_str.replace("__Y__", f"({c}*y+{s}*z)")
-            obj_str = obj_str.replace("__Z__", f"({-s}*y+{c}*z)")
+            y, z = _lincomb(c, y, s, z), _lincomb(-s, y, c, z)
         else:
             raise ValueError(f"axis must be 'x', 'y', or 'z', got {self.axis!r}")
-        return obj_str
-
-    def build_expr(self, rz: bool) -> str:
-        c = float(np.cos(self.angle))
-        s = float(np.sin(self.angle))
-        obj_str = self.obj.build_expr(rz)
-        if self.axis == "z":
-            obj_str = obj_str.replace("x", "__X__").replace("y", "__Y__")
-            obj_str = obj_str.replace("__X__", f"({c}*x+{s}*y)")
-            obj_str = obj_str.replace("__Y__", f"({-s}*x+{c}*y)")
-        elif self.axis == "y":
-            obj_str = obj_str.replace("x", "__X__").replace("z", "__Z__")
-            obj_str = obj_str.replace("__X__", f"({c}*x+{s}*z)")
-            obj_str = obj_str.replace("__Z__", f"({-s}*x+{c}*z)")
-        elif self.axis == "x":
-            obj_str = obj_str.replace("y", "__Y__").replace("z", "__Z__")
-            obj_str = obj_str.replace("__Y__", f"({c}*y+{s}*z)")
-            obj_str = obj_str.replace("__Z__", f"({-s}*y+{c}*z)")
-        else:
-            raise ValueError(f"axis must be 'x', 'y', or 'z', got {self.axis!r}")
-        return obj_str
+        return self.obj.build_expr(rz, x, y, z)
 
     def collect_named(self, registry: dict) -> None:
         self.obj.collect_named(registry)
@@ -604,7 +578,6 @@ class Cylinder(BaseObject):
         self.radius = radius
         self.name = name
         self.default_voltage = default_voltage
-        self.shape = f"({self.radius}**2 - (x**2 + y**2))"
 
     def collect_named(self, registry: dict) -> None:
         if self.name is not None:
@@ -620,10 +593,13 @@ class Cylinder(BaseObject):
         r = self.radius
         return BBox(-r, r, -r, r, -np.inf, np.inf)
 
-    def build_expr(self, rz: bool) -> str:
+    def shape_expr(self, x="x", y="y", z="z") -> str:
+        return f"({self.radius}**2 - ({x}**2 + {y}**2))"
+
+    def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
         if rz:
-            return f"(if({self.radius}**2 - x**2 > 0, 1, 0))"
-        return str(self)
+            return f"(if({self.radius}**2 - {x}**2 > 0, 1, 0))"
+        return self.normalize(x, y, z)
 
     @property
     def rz_bbox(self) -> RZBBox:
@@ -661,13 +637,13 @@ class CylinderZ_hollow(Diff):
         if self.name is not None:
             registry[self.name] = self
 
-    def build_expr(self, rz: bool) -> str:
+    def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
         if rz:
             return (
-                f"(x > {self._r_inner}) * (x < {self._r_outer})"
-                f" * (z > {self._zmin}) * (z < {self._zmax})"
+                f"({x} > {self._r_inner}) * ({x} < {self._r_outer})"
+                f" * ({z} > {self._zmin}) * ({z} < {self._zmax})"
             )
-        return str(self)
+        return super().build_expr(rz, x, y, z)
 
     @property
     def rz_bbox(self) -> RZBBox:
@@ -686,10 +662,6 @@ class Box(BaseObject):
         self.zmin = zmin
         self.zmax = zmax
 
-        self.shape = (
-            f"((x>{xmin})*(x<{xmax})*(y>{ymin})*(y<{ymax})*(z>{zmin})*(z<{zmax}))"
-        )
-
     def eval(self, x, y, z):
         val = (
             (x > self.xmin)
@@ -703,13 +675,20 @@ class Box(BaseObject):
         val = np.asarray(val, dtype=float)
         return val
 
-    def build_expr(self, rz: bool) -> str:
+    def shape_expr(self, x="x", y="y", z="z") -> str:
+        return (
+            f"(({x}>{self.xmin})*({x}<{self.xmax})"
+            f"*({y}>{self.ymin})*({y}<{self.ymax})"
+            f"*({z}>{self.zmin})*({z}<{self.zmax}))"
+        )
+
+    def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
         if rz:
             return (
-                f"((x>{self.xmin})*(x<{self.xmax})"
-                f"*(z>{self.zmin})*(z<{self.zmax}))"
+                f"(({x}>{self.xmin})*({x}<{self.xmax})"
+                f"*({z}>{self.zmin})*({z}<{self.zmax}))"
             )
-        return str(self)
+        return self.normalize(x, y, z)
 
     @property
     def bbox(self):
@@ -745,9 +724,12 @@ class Torus(BaseObject):
         self.R = major_radius
         self.r = minor_radius
         self.z0 = z_center
+
+    def shape_expr(self, x="x", y="y", z="z") -> str:
         # Torus equation: (sqrt(x^2+y^2) - R)^2 + (z-z0)^2 < r^2
-        self.shape = (
-            f"({self.r}**2 - ((sqrt(x**2 + y**2) - {self.R})**2 + (z - {self.z0})**2))"
+        return (
+            f"({self.r}**2 - ((sqrt({x}**2 + {y}**2) - {self.R})**2"
+            f" + {_shift(z, self.z0)}**2))"
         )
 
     def eval(self, x, y, z):
@@ -792,12 +774,16 @@ class Cone(BaseObject):
         self.z2 = z2
         self.r1 = r1
         self.r2 = r2
+
+    def shape_expr(self, x="x", y="y", z="z") -> str:
         # Linear interpolation: r(z) = r1 + (r2-r1)*(z-z1)/(z2-z1)
         # Inside cone if: sqrt(x^2+y^2) < r(z) AND z1 < z < z2
-        slope = (r2 - r1) / (z2 - z1)
-        r_of_z = f"({r1} + {slope}*(z - {z1}))"
+        z1, z2 = self.z1, self.z2
+        slope = (self.r2 - self.r1) / (z2 - z1)
+        op = "-" if slope < 0 else "+"
+        r_of_z = f"({self.r1} {op} {abs(slope)}*{_shift(z, z1)})"
         # Note: multiply by (z>z1)*(z<z2) to constrain to axial range
-        self.shape = f"(({r_of_z})**2 - (x**2 + y**2)) * (z > {z1}) * (z < {z2})"
+        return f"(({r_of_z})**2 - ({x}**2 + {y}**2)) * ({z} > {z1}) * ({z} < {z2})"
 
     def eval(self, x, y, z):
         # Linear interpolation of radius
