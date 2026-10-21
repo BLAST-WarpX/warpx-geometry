@@ -13,17 +13,14 @@ from warpx_geometry import (
     CylinderZ_hollow,
     Diff,
     Intersection,
-    RZBBox,
-    Rotate,
     RoundedCylinderZ,
     RoundedCylinderZ_hollow,
-    Scale,
+    RZBBox,
     Torus,
     Translate,
     Union,
     bboxes_overlap,
 )
-
 
 # ---------------------------------------------------------------------------
 # RZBBox basics
@@ -168,7 +165,9 @@ class TestRZBBoxCylinderZ:
 
 class TestRZBBoxCylinderZHollow:
     def test_hollow_rz_bbox(self):
-        cyl = CylinderZ_hollow(radius_outer=0.011, radius_inner=0.010, zmin=0.0, zmax=0.1)
+        cyl = CylinderZ_hollow(
+            radius_outer=0.011, radius_inner=0.010, zmin=0.0, zmax=0.1
+        )
         bb = cyl.rz_bbox
         assert bb.rmin == pytest.approx(0.010)
         assert bb.rmax == pytest.approx(0.011)
@@ -260,7 +259,9 @@ class TestRZBBoxIntersection:
 
 class TestRZBBoxTranslate:
     def test_translate_shifts_z(self):
-        cyl = CylinderZ_hollow(radius_outer=0.011, radius_inner=0.010, zmin=0.0, zmax=0.01)
+        cyl = CylinderZ_hollow(
+            radius_outer=0.011, radius_inner=0.010, zmin=0.0, zmax=0.01
+        )
         tr = Translate(cyl, x=0, y=0, z=0.05)
         bb = tr.rz_bbox
         assert bb.zmin == pytest.approx(0.05)
@@ -282,8 +283,11 @@ class TestRZBBoxRoundedCylinderZ:
 class TestRZBBoxRoundedCylinderZHollow:
     def test_rounded_hollow_cyl_rz_bbox(self):
         cyl = RoundedCylinderZ_hollow(
-            radius_outer=0.011, radius_inner=0.010,
-            zmin=0.0, zmax=0.05, fillet_radius=0.0005
+            radius_outer=0.011,
+            radius_inner=0.010,
+            zmin=0.0,
+            zmax=0.05,
+            fillet_radius=0.0005,
         )
         bb = cyl.rz_bbox
         assert bb.rmin == pytest.approx(0.010)

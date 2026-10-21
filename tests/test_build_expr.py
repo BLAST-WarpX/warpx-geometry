@@ -1,6 +1,5 @@
 """Tests for build_expr(rz) and Geometry(rz=False/True)."""
 
-import numpy as np
 import pytest
 
 from warpx_geometry import (
@@ -16,7 +15,6 @@ from warpx_geometry import (
     Translate,
     Union,
 )
-
 
 # ---------------------------------------------------------------------------
 # Regression: build_expr(rz=False) must match __str__
@@ -134,7 +132,9 @@ class TestBuildExprRZ:
         assert "y" in expr_3d
 
     def test_translate_recurses_rz(self):
-        c = CylinderZ_hollow(radius_outer=0.011, radius_inner=0.010, zmin=0.0, zmax=0.01)
+        c = CylinderZ_hollow(
+            radius_outer=0.011, radius_inner=0.010, zmin=0.0, zmax=0.01
+        )
         t = Translate(c, x=0, y=0, z=0.05)
         expr = t.build_expr(rz=True)
         # Should use the hollow's direct RZ expression, not the Diff nesting
@@ -162,7 +162,9 @@ class TestGeometryRZ:
         assert "y" not in expr
 
     def test_geometry_rz_eb_string(self):
-        c = CylinderZ_hollow(radius_outer=0.067, radius_inner=0.051, zmin=-0.01, zmax=0.01)
+        c = CylinderZ_hollow(
+            radius_outer=0.067, radius_inner=0.051, zmin=-0.01, zmax=0.01
+        )
         geo = Geometry(c, rz=True)
         expr = geo.build_eb_expr()
         assert "0.051" in expr

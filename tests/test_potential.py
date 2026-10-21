@@ -1,17 +1,12 @@
 """Tests for name/default_voltage, collect_named, and to_potential_expr."""
 
-import pytest
-
 from warpx_geometry import (
-    CylinderZ,
     CylinderZ_hollow,
-    Diff,
     Geometry,
     Translate,
     Union,
 )
 from warpx_geometry.complex_geometry import Einzellens
-
 
 # ---------------------------------------------------------------------------
 # name and default_voltage on shape classes
@@ -20,22 +15,32 @@ from warpx_geometry.complex_geometry import Einzellens
 
 class TestNameDefaultVoltage:
     def test_unnamed_by_default(self):
-        c = CylinderZ_hollow(radius_outer=0.011, radius_inner=0.010, zmin=0.0, zmax=0.01)
+        c = CylinderZ_hollow(
+            radius_outer=0.011, radius_inner=0.010, zmin=0.0, zmax=0.01
+        )
         assert c.name is None
         assert c.default_voltage == 0
 
     def test_named_conductor(self):
         c = CylinderZ_hollow(
-            radius_outer=0.011, radius_inner=0.010, zmin=0.0, zmax=0.01,
-            name="ring_0", default_voltage=1600
+            radius_outer=0.011,
+            radius_inner=0.010,
+            zmin=0.0,
+            zmax=0.01,
+            name="ring_0",
+            default_voltage=1600,
         )
         assert c.name == "ring_0"
         assert c.default_voltage == 1600
 
     def test_string_default_voltage(self):
         c = CylinderZ_hollow(
-            radius_outer=0.011, radius_inner=0.010, zmin=0.0, zmax=0.01,
-            name="ring_0", default_voltage="1600*pulse(t)"
+            radius_outer=0.011,
+            radius_inner=0.010,
+            zmin=0.0,
+            zmax=0.01,
+            name="ring_0",
+            default_voltage="1600*pulse(t)",
         )
         assert c.default_voltage == "1600*pulse(t)"
 
@@ -47,7 +52,9 @@ class TestNameDefaultVoltage:
 
 class TestCollectNamed:
     def test_unnamed_not_collected(self):
-        c = CylinderZ_hollow(radius_outer=0.011, radius_inner=0.010, zmin=0.0, zmax=0.01)
+        c = CylinderZ_hollow(
+            radius_outer=0.011, radius_inner=0.010, zmin=0.0, zmax=0.01
+        )
         reg = {}
         c.collect_named(reg)
         assert reg == {}
@@ -141,7 +148,11 @@ class TestGeometryConductors:
 class TestToPotentialExprSingle:
     def test_rz_region_contains_voltage(self):
         c = CylinderZ_hollow(
-            radius_outer=0.067, radius_inner=0.051, zmin=-0.001, zmax=0.001, name="ring_0"
+            radius_outer=0.067,
+            radius_inner=0.051,
+            zmin=-0.001,
+            zmax=0.001,
+            name="ring_0",
         )
         geo = Geometry(c, rz=True)
         expr = geo.to_potential_expr({"ring_0": 1600})
@@ -151,7 +162,11 @@ class TestToPotentialExprSingle:
 
     def test_zero_voltage_returns_zero(self):
         c = CylinderZ_hollow(
-            radius_outer=0.067, radius_inner=0.051, zmin=-0.001, zmax=0.001, name="ring_0"
+            radius_outer=0.067,
+            radius_inner=0.051,
+            zmin=-0.001,
+            zmax=0.001,
+            name="ring_0",
         )
         geo = Geometry(c, rz=True)
         expr = geo.to_potential_expr({"ring_0": 0})
@@ -159,8 +174,12 @@ class TestToPotentialExprSingle:
 
     def test_default_voltage_used_when_missing(self):
         c = CylinderZ_hollow(
-            radius_outer=0.067, radius_inner=0.051, zmin=-0.001, zmax=0.001,
-            name="ring_0", default_voltage=800
+            radius_outer=0.067,
+            radius_inner=0.051,
+            zmin=-0.001,
+            zmax=0.001,
+            name="ring_0",
+            default_voltage=800,
         )
         geo = Geometry(c, rz=True)
         expr = geo.to_potential_expr({})  # no override
@@ -168,7 +187,11 @@ class TestToPotentialExprSingle:
 
     def test_string_voltage_passes_through(self):
         c = CylinderZ_hollow(
-            radius_outer=0.067, radius_inner=0.051, zmin=-0.001, zmax=0.001, name="ring_0"
+            radius_outer=0.067,
+            radius_inner=0.051,
+            zmin=-0.001,
+            zmax=0.001,
+            name="ring_0",
         )
         geo = Geometry(c, rz=True)
         expr = geo.to_potential_expr({"ring_0": "1600*pulse(t)"})
@@ -191,7 +214,11 @@ class TestToPotentialExprSingle:
 class TestToPotentialExprNonOverlapping:
     def test_plus_combination(self):
         a = CylinderZ_hollow(
-            radius_outer=0.067, radius_inner=0.051, zmin=-0.001, zmax=0.001, name="ring_0"
+            radius_outer=0.067,
+            radius_inner=0.051,
+            zmin=-0.001,
+            zmax=0.001,
+            name="ring_0",
         )
         b = CylinderZ_hollow(
             radius_outer=0.067, radius_inner=0.051, zmin=0.05, zmax=0.06, name="ring_1"

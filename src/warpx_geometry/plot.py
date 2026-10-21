@@ -113,13 +113,14 @@ def plot_rz_bboxes(ax, components_dict, margin=0, unit_scale=1000, bbox_kwargs=N
     --------
     >>> components = {
     ...     "ring_0": (ring, "red"),
-    ...     "tube":   (tube, "gray"),
+    ...     "tube": (tube, "gray"),
     ... }
     >>> # Non-expanded bboxes
     >>> plot_rz_bboxes(ax, components, margin=0)
     >>> # Bboxes expanded by 2mm (to visualise potential regions)
-    >>> plot_rz_bboxes(ax, components, margin=0.002,
-    ...                bbox_kwargs={"linestyle": ":", "linewidth": 2})
+    >>> plot_rz_bboxes(
+    ...     ax, components, margin=0.002, bbox_kwargs={"linestyle": ":", "linewidth": 2}
+    ... )
     """
     default_kw = {"fill": False, "linestyle": "--", "linewidth": 1.5, "alpha": 0.8}
     kw = {**default_kw, **(bbox_kwargs or {})}
@@ -208,8 +209,14 @@ def plot_rz_geometry_components(
     ... }
     >>> plot_rz_geometry_components(ax, components, z_range=(0, 0.2), r_range=(0, 0.03))
     >>> # Also show expanded bounding boxes:
-    >>> plot_rz_geometry_components(ax, components, z_range=(0, 0.2), r_range=(0, 0.03),
-    ...                             bbox_margin=0.002, bbox_kwargs={'linestyle': ':'})
+    >>> plot_rz_geometry_components(
+    ...     ax,
+    ...     components,
+    ...     z_range=(0, 0.2),
+    ...     r_range=(0, 0.03),
+    ...     bbox_margin=0.002,
+    ...     bbox_kwargs={"linestyle": ":"},
+    ... )
     """
     z_min, z_max = z_range
     r_min, r_max = r_range

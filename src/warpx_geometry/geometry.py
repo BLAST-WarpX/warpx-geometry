@@ -169,7 +169,8 @@ def bboxes_overlap(a, b, tolerance: float = 0) -> bool:
         )
     else:
         raise TypeError(
-            f"bboxes_overlap requires two BBox or two RZBBox objects, got {type(a)} and {type(b)}"
+            "bboxes_overlap requires two BBox or two RZBBox objects, "
+            f"got {type(a)} and {type(b)}"
         )
 
 
@@ -207,7 +208,7 @@ class BaseObject:
         """Populate registry with {name: obj} for all named conductors in this tree."""
 
     def to_potential_expr(self, voltage, rz: bool, margin: float = 0) -> str:
-        """Return a WarpX potential expression string assigning voltage to this object's region."""
+        """Return a WarpX potential expression assigning voltage to this region."""
         if rz:
             bb = self.rz_bbox.expanded(margin)
             return (
@@ -661,7 +662,9 @@ class SlabZ(BaseObject):
 
 
 class CylinderZ_hollow(Diff):
-    def __init__(self, radius_outer, radius_inner, zmin, zmax, name=None, default_voltage=0):
+    def __init__(
+        self, radius_outer, radius_inner, zmin, zmax, name=None, default_voltage=0
+    ):
         self._r_inner = radius_inner
         self._r_outer = radius_outer
         self._zmin = zmin
@@ -691,7 +694,9 @@ class CylinderZ_hollow(Diff):
 
 
 class Box(BaseObject):
-    def __init__(self, xmin, xmax, ymin, ymax, zmin, zmax, name=None, default_voltage=0):
+    def __init__(
+        self, xmin, xmax, ymin, ymax, zmin, zmax, name=None, default_voltage=0
+    ):
         super().__init__()
         self.name = name
         self.default_voltage = default_voltage
@@ -749,7 +754,9 @@ class Torus(BaseObject):
         torus = Torus(major_radius=0.010, minor_radius=0.001, z_center=0.1)
     """
 
-    def __init__(self, major_radius, minor_radius, z_center=0, name=None, default_voltage=0):
+    def __init__(
+        self, major_radius, minor_radius, z_center=0, name=None, default_voltage=0
+    ):
         super().__init__()
         self.name = name
         self.default_voltage = default_voltage
@@ -760,9 +767,7 @@ class Torus(BaseObject):
     def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
         # Signed distance to the tube: r - sqrt((rho - R)^2 + (z - z0)^2)
         rho = _rho(rz, x, y)
-        return (
-            f"({self.r}-sqrt(({rho}-{self.R})**2 + {_shift(z, self.z0)}**2))"
-        )
+        return f"({self.r}-sqrt(({rho}-{self.R})**2 + {_shift(z, self.z0)}**2))"
 
     def eval(self, x, y, z):
         r_xy = np.sqrt(x**2 + y**2)
@@ -783,7 +788,9 @@ class Torus(BaseObject):
 
     @property
     def rz_bbox(self) -> RZBBox:
-        return RZBBox(self.R - self.r, self.R + self.r, self.z0 - self.r, self.z0 + self.r)
+        return RZBBox(
+            self.R - self.r, self.R + self.r, self.z0 - self.r, self.z0 + self.r
+        )
 
 
 class Cone(BaseObject):
@@ -857,8 +864,15 @@ class RoundedCylinderZ(Union):
     """
 
     def __init__(
-        self, radius, zmin, zmax, fillet_radius, fillet_top=True, fillet_bottom=True,
-        name=None, default_voltage=0
+        self,
+        radius,
+        zmin,
+        zmax,
+        fillet_radius,
+        fillet_top=True,
+        fillet_bottom=True,
+        name=None,
+        default_voltage=0,
     ):
         # Main cylinder body (reduced height to accommodate fillets)
         z_body_min = zmin + (fillet_radius if fillet_bottom else 0)
