@@ -1,8 +1,11 @@
 """Tests for name/default_voltage, collect_named, and to_potential_expr."""
 
 from warpx_geometry import (
+    Box,
     CylinderZ_hollow,
     Geometry,
+    Rotate,
+    Scale,
     Translate,
     Union,
 )
@@ -268,3 +271,21 @@ class TestToPotentialExprMargin:
         assert expr_no_margin != expr_margin
         # The margin expression should have larger z extent
         assert "0.003" in expr_margin  # zmax + margin = 0.001 + 0.002
+
+
+class TestNamedComposites:
+    def test_named_returns_self(self):
+        u = Box(0, 1, 0, 1, 0, 1) + Box(2, 3, 0, 1, 0, 1)
+        assert u.named("pair", default_voltage=5) is u
+        assert (u.name, u.default_voltage) == ("pair", 5)
+
+    def test_named_composite_hides_children(self):
+        inner = Box(0, 1, 0, 1, 0, 1, name="inner")
+        t = Translate(inner + Box(2, 3, 0, 1, 0, 1), x=1).named("moved")
+        geo = Geometry(t + Box(5, 6, 0, 1, 0, 1, name="other"))
+        assert set(geo.conductors) == {"moved", "other"}
+
+    def test_unnamed_composite_recurses(self):
+        a = Box(0, 1, 0, 1, 0, 1, name="a")
+        geo = Geometry(Rotate(Scale(a - Box(0, 0.5, 0, 1, 0, 1), sx=2), 0.1))
+        assert set(geo.conductors) == {"a"}

@@ -19,6 +19,7 @@ from warpx_geometry import (
     Cylinder,
     CylinderZ,
     CylinderZ_hollow,
+    Intersection,
     Rotate,
     RoundedCylinderZ_hollow,
     Scale,
@@ -173,3 +174,22 @@ def test_rz_hollow_cylinder_matches_3d_at_y0():
     rz_vals = eval_expr(c.build_expr(rz=True), R, 0.0, Z)
     xyz_vals = eval_expr(c.build_expr(rz=False), R, np.zeros_like(R), Z)
     assert np.allclose(rz_vals, xyz_vals)
+
+
+def test_intersection_operator():
+    a, b = Box(0, 2, 0, 1, 0, 1), Box(1, 3, 0, 1, 0, 1)
+    assert str(a * b) == str(Intersection(a, b))
+
+
+def test_long_unions_are_balanced():
+    """Hundreds of electrodes must not create deeply nested expressions."""
+    stack = CylinderZ_hollow(0.02, 0.01, 0.0, 0.003)
+    for i in range(1, 500):
+        stack = stack + CylinderZ_hollow(0.02, 0.01, i * 0.01, i * 0.01 + 0.003)
+    depth = max_depth = 0
+    for char in str(stack):
+        depth += {"(": 1, ")": -1}.get(char, 0)
+        max_depth = max(max_depth, depth)
+    assert max_depth < 30
+    assert stack.signed_value(0.015, 0.0, 4.9915) == pytest.approx(0.0015)
+    assert stack.signed_value(0.015, 0.0, 4.995) < 0

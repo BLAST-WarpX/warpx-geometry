@@ -22,7 +22,3 @@ class Einzellens(g.Union):
         super().__init__(tmp, c)
         self.name = name
         self.default_voltage = default_voltage
-
-    def collect_named(self, registry: dict) -> None:
-        if self.name is not None:
-            registry[self.name] = self
