@@ -8,7 +8,7 @@ This package provides an easy way to define simple and complex 3D geometries as 
 
 - **Simple geometric primitives**: Cylinders, boxes, cones, tori
 - **Boolean operations**: Union, difference, intersection
-- **Transformations**: Translation (rotation coming soon)
+- **Transformations**: Translation, scaling, rotation
 - **Complex shapes**: Rounded cylinders with fillets, hollow cylinders
 - **Pre-built components**: Einzellens and other common structures
 - **RZ geometry support**: Optimized for cylindrical simulations
@@ -264,7 +264,20 @@ WarpX uses the following convention for embedded boundaries:
 - Function returns **> 0** inside the conductor
 - Function returns **< 0** outside the conductor
 
-This package handles this automatically when you use the `Geometry` wrapper.
+Every shape produces a smooth function that follows this convention and is
+zero exactly on its surface (where practical, the signed distance to the
+surface, e.g. `0.01-sqrt(x**2 + y**2)` for a cylinder of radius 10 mm).
+Shapes are combined with `min`/`max`, which keeps the zero crossing on the
+combined surface:
+
+| Operation | Expression |
+|---|---|
+| `a + b` (union) | `max(fa, fb)` |
+| `Intersection(a, b)` | `min(fa, fb)` |
+| `a - b` (difference) | `min(fa, -fb)` |
+
+The smooth function lets AMReX locate the cut cells efficiently. `eval()`
+still returns 0/1 (outside/inside) for plotting.
 
 ## Voltage Assignment (Named Conductors)
 
@@ -423,6 +436,8 @@ plot_rz_bboxes(ax, components, margin=margin,
 - **`Diff(a, b)`** or **`a - b`**: Subtract b from a
 - **`Intersection(a, b)`**: Keep only overlapping region
 - **`Translate(obj, x, y, z)`**: Move object in space
+- **`Scale(obj, sx, sy, sz)`**: Scale object around the origin (see also `scale_around`, `scale_to_bbox_center`)
+- **`Rotate(obj, angle, axis)`**: Rotate object around the x, y or z axis
 
 ## Project Management with uv
 

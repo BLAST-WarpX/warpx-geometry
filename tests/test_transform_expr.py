@@ -1,9 +1,11 @@
-"""Regression tests: transformed composite shapes must produce valid expressions.
+"""Generated WarpX expressions must agree with eval().
 
 Translate/Scale/Rotate used to do plain string replacement on the finished
-expression, which also rewrote the 'x' inside 'max(' (issue #1). These tests
-evaluate the generated WarpX expression strings numerically and compare them
-against eval().
+expression, which also rewrote the 'x' inside 'max(' (issue #1). The
+expressions are now smooth signed functions combined with min/max (also
+issue #1). These tests evaluate the generated expression strings numerically
+and check that they are strictly positive inside and strictly negative
+outside, matching eval().
 """
 
 import re
@@ -14,6 +16,7 @@ import pytest
 from warpx_geometry import (
     Box,
     Cone,
+    Cylinder,
     CylinderZ,
     CylinderZ_hollow,
     Rotate,
@@ -32,6 +35,7 @@ def eval_expr(expr, x, y, z):
     namespace = {
         "_if": lambda c, a, b: np.where(c, a, b),
         "max": np.maximum,
+        "min": np.minimum,
         "sqrt": np.sqrt,
         "x": x,
         "y": y,
@@ -90,9 +94,9 @@ def test_expression_matches_eval(name):
     x, y, z = random_points(obj)
     expected = obj.eval(x, y, z)
     got = eval_expr(str(obj), x, y, z)
-    assert np.array_equal(
-        np.asarray(got, dtype=float), np.asarray(expected, dtype=float)
-    )
+    inside = np.asarray(expected) > 0
+    assert np.all(got[inside] > 0)
+    assert np.all(got[~inside] < 0)
     # make sure the test actually probes both inside and outside
     assert 0 < np.count_nonzero(expected) < len(x)
 
@@ -137,3 +141,35 @@ def test_no_plus_minus_or_double_minus(obj):
     assert "--" not in expr
     assert "- -" not in expr
     assert "+ -" not in expr
+
+
+@pytest.mark.parametrize("name", CASES)
+def test_expression_is_smooth(name):
+    """No 0/1 step functions: no if() and no boolean comparisons."""
+    expr = str(CASES[name]())
+    assert "if(" not in expr
+    assert ">" not in expr
+    assert "<" not in expr
+
+
+@pytest.mark.parametrize("rz", [False, True])
+def test_primitive_values_are_signed_distances(rz):
+    """Cylinder, box and torus values equal the distance to the surface."""
+    y = 0.0
+    cyl = Cylinder(radius=0.01)
+    assert eval_expr(cyl.build_expr(rz), 0.004, y, 0.0) == pytest.approx(0.006)
+    assert eval_expr(cyl.build_expr(rz), 0.013, y, 0.0) == pytest.approx(-0.003)
+    box = Box(-0.01, 0.01, -0.01, 0.01, 0.0, 0.1)
+    assert eval_expr(box.build_expr(rz), 0.007, y, 0.05) == pytest.approx(0.003)
+    torus = Torus(0.02, 0.005, z_center=0.1)
+    assert eval_expr(torus.build_expr(rz), 0.02, y, 0.102) == pytest.approx(0.003)
+
+
+def test_rz_hollow_cylinder_matches_3d_at_y0():
+    c = CylinderZ_hollow(radius_outer=0.011, radius_inner=0.010, zmin=0.0, zmax=0.01)
+    r = np.linspace(0, 0.02, 101)
+    z = np.linspace(-0.005, 0.015, 101)
+    R, Z = np.meshgrid(r, z, indexing="ij")
+    rz_vals = eval_expr(c.build_expr(rz=True), R, 0.0, Z)
+    xyz_vals = eval_expr(c.build_expr(rz=False), R, np.zeros_like(R), Z)
+    assert np.allclose(rz_vals, xyz_vals)

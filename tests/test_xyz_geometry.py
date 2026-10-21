@@ -246,9 +246,9 @@ class TestGeometryWrapper:
         """Test that Geometry produces proper WarpX format."""
         cyl = Cylinder(radius=0.01)
         geom = Geometry(cyl)
-        # String should subtract 0.5 for WarpX convention
+        # String is a signed function: > 0 inside, < 0 outside
         geom_str = str(geom)
-        assert "-0.5" in geom_str
+        assert geom_str == "(0.01-sqrt(x**2 + y**2))"
 
     def test_geometry_eval(self):
         """Test that Geometry eval works correctly."""

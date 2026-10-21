@@ -14,16 +14,22 @@ inside or outside of a conducator depending on:
    > 0 inside the conductor
    < 0 outside of the conductor.
 
-We make use of this having functions for shapes return either 0 and 1
-with 1 inside the conductor. We can then easily add different shapes
-together by just using a max(shape1, shape2) call.
+Every primitive returns a smooth function that is positive inside,
+negative outside and exactly zero on its surface (where practical, an
+approximate signed distance, e.g. r - sqrt(x**2 + y**2) for a cylinder).
+Only the sign matters, so shapes are combined with min/max, which keep the
+zero crossing exactly on the combined surface:
 
-We can also create differences between two objects by calculating
-A-2*B and then mapping the result back to 0 or 1.
+   union        A | B   ->  max(fA, fB)
+   intersection A & B   ->  min(fA, fB)
+   difference   A - B   ->  min(fA, -fB)
 
-At the very end before handing the function over to warpX, we subtract
-0.5 from the values to make sure we get positive and negative values
-warpX needs.
+The result can be handed to warpX directly. Keeping the function smooth
+(instead of a 0/1 step) lets AMReX's root finder locate the cut cells
+quickly. Primitives must be strictly negative everywhere outside; a region
+of exact zeros would be treated as surface.
+
+eval() still returns 0/1 (inside/outside) for plotting and tests.
 
 TODO: color by voltage or by object number/group
 
@@ -183,25 +189,19 @@ class BaseObject:
     def __sub__(self, other):
         return Diff(self, other)
 
-    def shape_expr(self, x="x", y="y", z="z") -> str:
-        """Return the raw shape expression (> 0 inside) in the given coordinates."""
-        raise NotImplementedError(f"{type(self).__name__} must implement shape_expr")
-
     @property
     def shape(self) -> str:
-        return self.shape_expr()
-
-    def normalize(self, x="x", y="y", z="z"):
-        return f"(if({self.shape_expr(x, y, z)} > 0, 1, 0))"
+        return self.build_expr(rz=False)
 
     def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
         """Return the WarpX expression string, optionally in RZ-optimized form.
 
+        The expression is > 0 inside, < 0 outside and 0 on the surface.
         x, y, z are the coordinate expressions to evaluate the shape at.
         Transforms (Translate, Scale, Rotate) pass modified coordinates down
         the tree instead of rewriting the finished string, mirroring eval().
         """
-        return self.normalize(x, y, z)
+        raise NotImplementedError(f"{type(self).__name__} must implement build_expr")
 
     def collect_named(self, registry: dict) -> None:
         """Populate registry with {name: obj} for all named conductors in this tree."""
@@ -239,7 +239,7 @@ class Intersection(BaseObject):
     def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
         a = self.a.build_expr(rz, x, y, z)
         b = self.b.build_expr(rz, x, y, z)
-        return f"({a} * {b})"
+        return f"min({a}, {b})"
 
     def collect_named(self, registry: dict) -> None:
         self.a.collect_named(registry)
@@ -283,7 +283,7 @@ class Union(BaseObject):
     def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
         a = self.a.build_expr(rz, x, y, z)
         b = self.b.build_expr(rz, x, y, z)
-        return f"(max({a}, {b}))"
+        return f"max({a}, {b})"
 
     def collect_named(self, registry: dict) -> None:
         self.a.collect_named(registry)
@@ -327,7 +327,7 @@ class Diff(BaseObject):
     def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
         a = self.a.build_expr(rz, x, y, z)
         b = self.b.build_expr(rz, x, y, z)
-        return f"(if({a}-{b} > 0.5, 1, 0))"
+        return f"min({a}, -{b})"
 
     def collect_named(self, registry: dict) -> None:
         self.a.collect_named(registry)
@@ -363,6 +363,28 @@ def _lincomb(a, u: str, b, v: str) -> str:
     """Return the expression for a*u + b*v, writing a negative b as a subtraction."""
     op = "-" if b < 0 else "+"
     return f"({a}*{u}{op}{abs(b)}*{v})"
+
+
+def _min(*args: str) -> str:
+    """Return a nested min() expression (the WarpX parser's min takes two args)."""
+    if len(args) == 1:
+        return args[0]
+    return f"min({args[0]}, {_min(*args[1:])})"
+
+
+def _rho(rz: bool, x: str, y: str) -> str:
+    """Return the radial distance from the z-axis (x is r in RZ)."""
+    return x if rz else f"sqrt({x}**2 + {y}**2)"
+
+
+def _between(coord: str, lo, hi) -> list[str]:
+    """Return terms that are positive for lo < coord < hi (skips infinite bounds)."""
+    terms = []
+    if np.isfinite(lo):
+        terms.append(_shift(coord, lo))
+    if np.isfinite(hi):
+        terms.append(f"({hi}-{coord})")
+    return terms
 
 
 class Translate(BaseObject):
@@ -593,13 +615,8 @@ class Cylinder(BaseObject):
         r = self.radius
         return BBox(-r, r, -r, r, -np.inf, np.inf)
 
-    def shape_expr(self, x="x", y="y", z="z") -> str:
-        return f"({self.radius}**2 - ({x}**2 + {y}**2))"
-
     def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
-        if rz:
-            return f"(if({self.radius}**2 - {x}**2 > 0, 1, 0))"
-        return self.normalize(x, y, z)
+        return f"({self.radius}-{_rho(rz, x, y)})"
 
     @property
     def rz_bbox(self) -> RZBBox:
@@ -609,7 +626,7 @@ class Cylinder(BaseObject):
 class CylinderZ(Intersection):
     def __init__(self, radius, zmin, zmax, name=None, default_voltage=0):
         a = Cylinder(radius)
-        b = Box(-2 * radius, 2 * radius, -2 * radius, 2 * radius, zmin, zmax)
+        b = SlabZ(zmin, zmax)
         super().__init__(a, b)
         self.name = name
         self.default_voltage = default_voltage
@@ -617,6 +634,30 @@ class CylinderZ(Intersection):
     def collect_named(self, registry: dict) -> None:
         if self.name is not None:
             registry[self.name] = self
+
+
+class SlabZ(BaseObject):
+    """Infinite slab zmin < z < zmax (unbounded in x and y)."""
+
+    def __init__(self, zmin, zmax):
+        super().__init__()
+        self.zmin = zmin
+        self.zmax = zmax
+
+    def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
+        return _min(*_between(z, self.zmin, self.zmax))
+
+    def eval(self, x, y, z):
+        val = (z > self.zmin) * (z < self.zmax) * np.ones_like(x)
+        return np.asarray(val, dtype=float)
+
+    @property
+    def bbox(self):
+        return BBox(-np.inf, np.inf, -np.inf, np.inf, self.zmin, self.zmax)
+
+    @property
+    def rz_bbox(self) -> RZBBox:
+        return RZBBox(0, np.inf, self.zmin, self.zmax)
 
 
 class CylinderZ_hollow(Diff):
@@ -638,12 +679,11 @@ class CylinderZ_hollow(Diff):
             registry[self.name] = self
 
     def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
-        if rz:
-            return (
-                f"({x} > {self._r_inner}) * ({x} < {self._r_outer})"
-                f" * ({z} > {self._zmin}) * ({z} < {self._zmax})"
-            )
-        return super().build_expr(rz, x, y, z)
+        rho = _rho(rz, x, y)
+        return _min(
+            *_between(rho, self._r_inner, self._r_outer),
+            *_between(z, self._zmin, self._zmax),
+        )
 
     @property
     def rz_bbox(self) -> RZBBox:
@@ -675,20 +715,12 @@ class Box(BaseObject):
         val = np.asarray(val, dtype=float)
         return val
 
-    def shape_expr(self, x="x", y="y", z="z") -> str:
-        return (
-            f"(({x}>{self.xmin})*({x}<{self.xmax})"
-            f"*({y}>{self.ymin})*({y}<{self.ymax})"
-            f"*({z}>{self.zmin})*({z}<{self.zmax}))"
-        )
-
     def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
-        if rz:
-            return (
-                f"(({x}>{self.xmin})*({x}<{self.xmax})"
-                f"*({z}>{self.zmin})*({z}<{self.zmax}))"
-            )
-        return self.normalize(x, y, z)
+        terms = _between(x, self.xmin, self.xmax)
+        if not rz:
+            terms += _between(y, self.ymin, self.ymax)
+        terms += _between(z, self.zmin, self.zmax)
+        return _min(*terms)
 
     @property
     def bbox(self):
@@ -725,11 +757,11 @@ class Torus(BaseObject):
         self.r = minor_radius
         self.z0 = z_center
 
-    def shape_expr(self, x="x", y="y", z="z") -> str:
-        # Torus equation: (sqrt(x^2+y^2) - R)^2 + (z-z0)^2 < r^2
+    def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
+        # Signed distance to the tube: r - sqrt((rho - R)^2 + (z - z0)^2)
+        rho = _rho(rz, x, y)
         return (
-            f"({self.r}**2 - ((sqrt({x}**2 + {y}**2) - {self.R})**2"
-            f" + {_shift(z, self.z0)}**2))"
+            f"({self.r}-sqrt(({rho}-{self.R})**2 + {_shift(z, self.z0)}**2))"
         )
 
     def eval(self, x, y, z):
@@ -775,15 +807,14 @@ class Cone(BaseObject):
         self.r1 = r1
         self.r2 = r2
 
-    def shape_expr(self, x="x", y="y", z="z") -> str:
+    def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
         # Linear interpolation: r(z) = r1 + (r2-r1)*(z-z1)/(z2-z1)
-        # Inside cone if: sqrt(x^2+y^2) < r(z) AND z1 < z < z2
+        # Inside cone if: rho < r(z) AND z1 < z < z2
         z1, z2 = self.z1, self.z2
         slope = (self.r2 - self.r1) / (z2 - z1)
         op = "-" if slope < 0 else "+"
-        r_of_z = f"({self.r1} {op} {abs(slope)}*{_shift(z, z1)})"
-        # Note: multiply by (z>z1)*(z<z2) to constrain to axial range
-        return f"(({r_of_z})**2 - ({x}**2 + {y}**2)) * ({z} > {z1}) * ({z} < {z2})"
+        r_of_z = f"{self.r1} {op} {abs(slope)}*{_shift(z, z1)}"
+        return _min(f"({r_of_z}-{_rho(rz, x, y)})", *_between(z, z1, z2))
 
     def eval(self, x, y, z):
         # Linear interpolation of radius
@@ -932,7 +963,7 @@ class Geometry:
 
     def build_eb_expr(self) -> str:
         """Return the WarpX embedded-boundary expression string."""
-        return f"({self.object.build_expr(rz=self.rz)}-0.5)"
+        return self.object.build_expr(rz=self.rz)
 
     def __str__(self):
         return self.build_eb_expr()

@@ -77,7 +77,9 @@ class TestBuildExprFalseMatchesStr:
         cyl = Cylinder(radius=0.01)
         geo = Geometry(cyl)  # rz=False by default
         assert str(geo) == geo.build_eb_expr()
-        assert "-0.5" in str(geo)
+        # smooth signed function, no 0/1 step and no -0.5 offset
+        assert "if(" not in str(geo)
+        assert "-0.5" not in str(geo)
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +92,7 @@ class TestBuildExprRZ:
         c = Cylinder(radius=0.01)
         expr = c.build_expr(rz=True)
         assert "y" not in expr
-        assert "x**2" in expr
+        assert expr == "(0.01-x)"
 
     def test_box_drops_y_bounds(self):
         b = Box(xmin=-0.01, xmax=0.01, ymin=-0.01, ymax=0.01, zmin=-0.05, zmax=0.05)
@@ -156,14 +158,13 @@ class TestGeometryRZ:
         geo = Geometry(cyl, rz=True)
         assert geo.rz is True
         expr = str(geo)
-        assert "-0.5" in expr
+        assert expr == cyl.build_expr(rz=True)
         assert "y" not in expr
 
     def test_geometry_rz_eb_string(self):
         c = CylinderZ_hollow(radius_outer=0.067, radius_inner=0.051, zmin=-0.01, zmax=0.01)
         geo = Geometry(c, rz=True)
         expr = geo.build_eb_expr()
-        assert "-0.5" in expr
         assert "0.051" in expr
         assert "0.067" in expr
         assert "y" not in expr

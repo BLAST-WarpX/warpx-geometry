@@ -14,7 +14,13 @@ WarpX uses analytical functions to define conductor boundaries:
 - Function returns **> 0** → point is **inside** the conductor
 - Function returns **< 0** → point is **outside** the conductor
 
-The package internally works with 0/1 values (0=outside, 1=inside) and converts to WarpX convention (subtracting 0.5) in the `Geometry` wrapper class.
+Every shape builds a smooth function that is > 0 inside, < 0 outside and exactly 0 on
+its surface (where practical, the signed distance, e.g. `r - sqrt(x**2 + y**2)`). Shapes
+are combined with `max` (union), `min` (intersection) and `min(a, -b)` (difference),
+which keep the zero crossing on the combined surface. The result is passed to WarpX
+unchanged — no 0/1 step function and no `-0.5` offset. Primitives must be strictly
+negative everywhere outside (a region of exact zeros would be treated as surface).
+`.eval()` still returns 0/1 for plotting and tests.
 
 ### Coordinate Systems
 
@@ -40,17 +46,20 @@ src/warpx_geometry/
 ### Key Classes (geometry.py)
 
 - **`BaseObject`**: Base class for all geometric objects
-  - `.shape`: String representation of the analytical function
+  - `.build_expr(rz, x="x", y="y", z="z")`: WarpX expression string evaluated at the
+    given coordinate expressions; `rz=True` gives the RZ form (x = r, no y)
+  - `.shape` / `str(obj)`: `build_expr(rz=False)`
   - `.eval(x, y, z)`: Evaluate geometry at points, returns 0 or 1
-  - `.normalize()`: Wraps shape in if-statement for WarpX
   - Supports operators: `+` (Union), `-` (Diff)
 
-- **Operations**: `Union`, `Diff`, `Intersection`, `Translate`
-  - Combine or transform geometries
+- **Operations**: `Union`, `Diff`, `Intersection`, `Translate`, `Scale`, `Rotate`
+  - Combine (`max`/`min`) or transform geometries
+  - Transforms pass modified coordinate expressions down the tree via
+    `build_expr(rz, x, y, z)`; they never edit the finished string
   - Each has `.eval()` method for numerical evaluation
 
 - **Basic Shapes**: `Cylinder`, `CylinderZ`, `Box`, `Torus`, `Cone`
-  - Each defines `.shape` string and `.eval()` method
+  - Each defines `.build_expr()` and `.eval()`
   - Shape string uses WarpX/yt syntax
 
 - **Advanced Shapes**: `RoundedCylinderZ`, `CylinderZ_hollow`, etc.
@@ -58,7 +67,6 @@ src/warpx_geometry/
   - Implemented as subclasses of operations (Union, Diff)
 
 - **`Geometry`**: Wrapper that converts to WarpX format
-  - Subtracts 0.5 from values for WarpX convention
   - `str(Geometry(obj))` gives WarpX-ready function string
   - `rz=True`: enables RZ-optimised expressions and conductor registry
   - `geo.conductors`: dict of named shapes (see Voltage Assignment below)
@@ -69,8 +77,12 @@ src/warpx_geometry/
 
 1. Subclass `BaseObject`
 2. Define `__init__` to set parameters
-3. Set `self.shape` to the analytical function string
-4. Implement `.eval(x, y, z)` method
+3. Implement `.build_expr(rz, x="x", y="y", z="z")` returning a smooth function
+   (> 0 inside, < 0 outside, ideally the signed distance). Use the `x`, `y`, `z`
+   arguments, never the literal names, so transforms work. Combine several
+   conditions with `_min(...)` (the WarpX parser's `min`/`max` take two arguments)
+   and use `_shift(coord, offset)` / `_between(coord, lo, hi)` for offsets and ranges
+4. Implement `.eval(x, y, z)` method returning 0/1
 5. Add tests in `tests/test_xyz_geometry.py` and `tests/test_rz_geometry.py`
 6. Export in `__init__.py`
 
@@ -81,8 +93,15 @@ class Sphere(BaseObject):
         super().__init__()
         self.r = radius
         self.cx, self.cy, self.cz = center_x, center_y, center_z
-        self.shape = f"({self.r}**2 - ((x-{self.cx})**2 + (y-{self.cy})**2 + (z-{self.cz})**2))"
-    
+
+    def build_expr(self, rz, x="x", y="y", z="z"):
+        # signed distance: radius minus distance from the center
+        dx, dz = _shift(x, self.cx), _shift(z, self.cz)
+        if rz:
+            return f"({self.r}-sqrt({dx}**2 + {dz}**2))"
+        dy = _shift(y, self.cy)
+        return f"({self.r}-sqrt({dx}**2 + {dy}**2 + {dz}**2))"
+
     def eval(self, x, y, z):
         val = self.r**2 - ((x - self.cx)**2 + (y - self.cy)**2 + (z - self.cz)**2)
         return np.where(val > 0, 1, 0)
@@ -151,17 +170,18 @@ Tests are organised by coordinate system:
 
 ### Common Pitfalls
 
-1. **Translate implementation**: Uses string replacement, be careful with variable names
-   - `x` in `max(x, y)` will also be replaced!
-   - TODO: Needs improvement to handle this case
+1. **Never multiply indicator terms**: `(x>a)*(x<b)` is 0 across the whole outside
+   region, which breaks the zero crossing. Use `_min(*_between(x, a, b))` instead
 
 2. **Type annotations**: Original code has minimal type hints
    - `z_center` in `Torus` should accept `float`, not just `int`
    - Some diagnostics show type mismatches
 
-3. **eval() must match .shape**: Both must use same formula
-   - `.shape` is the string for WarpX
-   - `.eval()` is numerical evaluation for plotting/testing
+3. **eval() must match build_expr()**: same region, different output
+   - `build_expr()` is the signed function string for WarpX
+   - `.eval()` is the 0/1 numerical evaluation for plotting/testing
+   - `tests/test_transform_expr.py` evaluates the strings with numpy and checks
+     they are > 0 exactly where `eval()` is 1 — add new shapes there
 
 4. **RZ symmetry**: Shapes must be rotationally symmetric
    - Can't have features that vary with azimuthal angle
@@ -397,7 +417,7 @@ When a user asks for help:
 ### "Add a new shape"
 
 1. Understand the mathematical definition
-2. Write both `.shape` string and `.eval()` method
+2. Write both `.build_expr()` (signed function) and `.eval()` (0/1)
 3. Create tests for XYZ
 4. Create tests for RZ if applicable
 5. Add to `__init__.py` exports
@@ -414,8 +434,6 @@ When a user asks for help:
 ## Future Enhancements (TODO from code)
 
 From `geometry.py` docstring:
-- Rotation support (currently only Translation)
-- Better Translate implementation (to avoid string replacement issues)
 - Clone/copy functionality
 - Color by voltage or object group
 - 2D cut plotting with alpha regions for voltages
