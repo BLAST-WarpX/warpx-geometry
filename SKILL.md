@@ -40,7 +40,9 @@ src/warpx_geometry/
 ├── __init__.py           # Package exports and version
 ├── geometry.py           # Core geometry classes and primitives
 ├── complex_geometry.py   # Composite geometries (Einzellens, etc.)
-└── plot.py              # Visualization functions
+├── plot.py               # Older matplotlib helpers (fields, particles, RZ masks, bboxes)
+└── viz.py                # plot_2d / plot_3d / geometry_meshes (smooth, from the expression)
+examples/                 # Scripts that generate the README images in docs/images/
 ```
 
 ### Key Classes (geometry.py)
@@ -50,7 +52,12 @@ src/warpx_geometry/
     given coordinate expressions; `rz=True` gives the RZ form (x = r, no y)
   - `.shape` / `str(obj)`: `build_expr(rz=False)`
   - `.eval(x, y, z)`: Evaluate geometry at points, returns 0 or 1
-  - Supports operators: `+` (Union), `-` (Diff)
+  - `.signed_value(x, y, z, rz=False)`: evaluate the WarpX expression string itself
+    with numpy (`evaluate_expr`) — this is what the viz module plots
+  - `.named(name, default_voltage=0)`: name any object (also unions/transforms);
+    returns self. A named object registers itself in `collect_named` and hides
+    names below it; unnamed composites recurse via `_children()`
+  - Operators: `+` (Union), `-` (Diff), `*` (Intersection)
 
 - **Operations**: `Union`, `Diff`, `Intersection`, `Translate`, `Scale`, `Rotate`
   - Combine (`max`/`min`) or transform geometries
@@ -340,6 +347,26 @@ print(bboxes_overlap(a_bb, b_bb))   # True / False
 
 ---
 
+## Visualization (viz.py)
+
+`plot_2d(geometry, plane=None, ...)` (matplotlib) and `plot_3d(geometry, ...)`
+(pyvista, optional `viz` extra; no VTK wheels on Python 3.15 yet) sample
+`signed_value` on a grid and contour at zero. `geometry` can be a shape, a
+`Geometry` (uses `rz` and `conductors`; RZ is revolved in 3D) or `{label: obj}`.
+
+- Components: each named conductor is drawn as `min(f_all, f_part)`; the unnamed
+  remainder as `min(f_all, -max(f_parts))` (label `None`, shown as "other")
+- `colors={name: color, None: color}` or a single color; `color_by="voltage"` with
+  `volt_dict`/`default_voltage` and `cmap` (symmetric range if signs are mixed)
+- 2D: planes "xz", "yz", "xy", "rz" (z horizontal), `position`, `extent`, `mirror`
+- 3D: `clip="y"` etc. intersects with a half-space (closed cut face),
+  `resolution` (N along the longest axis, memory ~N^3), `camera_position`,
+  `screenshot=` (off-screen), returns the Plotter
+- `geometry_meshes` returns `(Component, PolyData)` for tests/export; tests check
+  mesh volumes against analytic values
+
+---
+
 ## Bounding Box Plotting
 
 ### Option A — via `plot_rz_geometry_components`
@@ -403,7 +430,7 @@ When a user asks for help:
 1. Identify this needs `RoundedCylinderZ` or `RoundedCylinderZ_hollow`
 2. Ask for: outer radius, inner radius (if hollow), length, fillet radius
 3. Provide code example with `Geometry` wrapper
-4. Suggest visualization with `.plot()` method
+4. Suggest visualization with `plot_2d` / `plot_3d` from `warpx_geometry.viz`
 5. Show how to use in WarpX
 
 ### "My geometry isn't showing up correctly in RZ"
@@ -411,7 +438,7 @@ When a user asks for help:
 1. Check if they're evaluating at y=0 with x=r
 2. Verify geometry is axially symmetric
 3. Check if shape is inside out (wrong sign)
-4. Suggest using `plot_rz_geometry_components` for debugging
+4. Suggest `plot_2d(Geometry(obj, rz=True))` for debugging (shows the RZ expression)
 5. Verify z and r ranges match simulation domain
 
 ### "Add a new shape"

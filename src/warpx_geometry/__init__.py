@@ -4,7 +4,12 @@ This package provides an easy way to define simple and complex 3D geometries
 as analytical functions for WarpX particle-in-cell simulations.
 """
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("warpx-geometry")
+except PackageNotFoundError:  # pragma: no cover - not installed
+    __version__ = "unknown"
 
 from .complex_geometry import Einzellens
 from .geometry import (
@@ -37,6 +42,7 @@ from .plot import (
     plot_rz_bboxes,
     plot_rz_geometry_components,
 )
+from .viz import geometry_meshes, plot_2d, plot_3d
 
 __all__ = [
     # Bounding boxes
@@ -73,4 +79,7 @@ __all__ = [
     "plot_rz_bboxes",
     "plot_rz_geometry_components",
     "create_rz_geometry_mask",
+    "plot_2d",
+    "plot_3d",
+    "geometry_meshes",
 ]

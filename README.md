@@ -1,20 +1,47 @@
 # WarpX Geometry
 
+[![tests](https://github.com/FSIBT/warpx-geometry/actions/workflows/tests.yml/badge.svg)](https://github.com/FSIBT/warpx-geometry/actions/workflows/tests.yml)
+
 Simple geometry objects for [WarpX](https://warpx.readthedocs.io/) embedded boundaries.
 
 This package provides an easy way to define simple and complex 3D geometries as analytical functions for WarpX particle-in-cell simulations. It supports both Cartesian (XYZ) and cylindrical (RZ) coordinate systems.
+
+## Gallery
+
+An einzel lens followed by a suppressor ring and a Faraday cup, built in RZ and
+shown as a 3D cutaway and as r-z cuts colored by name and by voltage
+([`examples/einzel_lens_faraday_cup.py`](examples/einzel_lens_faraday_cup.py)):
+
+![Einzel lens and Faraday cup, 3D cutaway](docs/images/einzel_lens_faraday_cup_3d.png)
+
+![Einzel lens and Faraday cup, r-z cuts](docs/images/einzel_lens_faraday_cup_rz.png)
+
+"warpX" built from boxes, rotated boxes and hollow cylinders, one named
+conductor per letter
+([`examples/warpx_letters.py`](examples/warpx_letters.py)):
+
+![warpX spelled in 3D](docs/images/warpx_letters.png)
+
+Every picture shows exactly the expression that is handed to WarpX.
 
 ## Features
 
 - **Simple geometric primitives**: Cylinders, boxes, cones, tori
 - **Boolean operations**: Union, difference, intersection
 - **Transformations**: Translation, scaling, rotation
+- **Named conductors**: Assign voltages and colors by name
 - **Complex shapes**: Rounded cylinders with fillets, hollow cylinders
 - **Pre-built components**: Einzellens and other common structures
 - **RZ geometry support**: Optimized for cylindrical simulations
-- **Visualization**: Built-in plotting functions for geometry verification
+- **Visualization**: Smooth 2D cuts (matplotlib) and 3D views (pyvista) of exactly
+  what WarpX sees, colored by name or voltage — for quick checks and publication figures
 
 ## Installation
+
+Requires Python 3.11 or newer. The optional `viz` extra installs
+[pyvista](https://pyvista.org) for 3D plotting (`pip install -e ".[viz]"`);
+VTK does not provide wheels for Python 3.15 yet, so on 3.15 only the 2D plots
+are available.
 
 ### Using uv (recommended)
 
@@ -178,26 +205,36 @@ geom = Geometry(cyl_translated)
 
 ### Visualization
 
+`plot_2d` (matplotlib) and `plot_3d` (pyvista) evaluate the WarpX expression on a
+grid and contour it at zero, so outlines and surfaces are smooth. They accept a
+geometry object, a `Geometry` (RZ geometries are revolved in 3D) or a dict
+`{label: object}`. Named conductors are drawn as separate components; color them
+with a `{name: color}` dict or by voltage with `color_by="voltage"`.
+
 ```python
-from warpx_geometry import CylinderZ_hollow, Geometry
+import matplotlib.pyplot as plt
+from warpx_geometry import CylinderZ, CylinderZ_hollow, Geometry
+from warpx_geometry.viz import plot_2d, plot_3d
 
-# Create geometry
-electrode = CylinderZ_hollow(
-    radius_outer=0.015,
-    radius_inner=0.012,
-    zmin=0.0,
-    zmax=0.05
-)
+lens = CylinderZ_hollow(0.011, 0.009, -0.005, 0.005, name="lens", default_voltage=5000)
+cup = CylinderZ_hollow(0.013, 0.011, 0.02, 0.05) + CylinderZ(0.013, 0.049, 0.052)
+geo = Geometry(lens + cup.named("cup"), rz=True)
 
-geom = Geometry(electrode)
+# 2D: r-z cut (default for RZ), also "xz", "yz", "xy" with position=...
+ax = plot_2d(geo, mirror=True, colors={"lens": "tab:blue", "cup": "tab:orange"})
+plot_2d(geo, color_by="voltage")  # colorbar from the conductor voltages
+plt.savefig("geometry.pdf")  # vector output for publications
 
-# Plot in 3D
-geom.plot(
-    xmin=-0.02, xmax=0.02, Nx=40,
-    ymin=-0.02, ymax=0.02, Ny=40,
-    zmin=-0.01, zmax=0.06, Nz=50
-)
+# 3D: clip="y" cuts away the +y half to look inside
+plot_3d(geo, clip="y")  # interactive window
+plot_3d(geo, clip="y", resolution=400, screenshot="geometry.png")  # high quality
 ```
+
+Useful options: `resolution` (grid points along the longest axis; ~100 for quick
+checks, 300+ for figures), `bounds`/`extent` (needed for unbounded shapes such as
+`Cylinder`), `units` (`"mm"` by default), `camera_position`/`view`/`zoom`, and
+`plotter=` to add to an existing pyvista scene. `geometry_meshes` returns the
+surface meshes for custom rendering or export (e.g. STL).
 
 ### RZ Geometry Plotting
 
@@ -434,10 +471,12 @@ plot_rz_bboxes(ax, components, margin=margin,
 ### Operations
 - **`Union(a, b)`** or **`a + b`**: Combine two objects
 - **`Diff(a, b)`** or **`a - b`**: Subtract b from a
-- **`Intersection(a, b)`**: Keep only overlapping region
+- **`Intersection(a, b)`** or **`a * b`**: Keep only overlapping region
 - **`Translate(obj, x, y, z)`**: Move object in space
 - **`Scale(obj, sx, sy, sz)`**: Scale object around the origin (see also `scale_around`, `scale_to_bbox_center`)
 - **`Rotate(obj, angle, axis)`**: Rotate object around the x, y or z axis
+- **`obj.named(name, default_voltage=0)`**: Name any object (including unions and
+  transforms) so it becomes a conductor for voltages and plot colors
 
 ## Project Management with uv
 

@@ -29,6 +29,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# VTK (needed by pyvista) has no Python 3.15 wheels yet; 2D plotting works everywhere
+viz = [
+    "pyvista>=0.44; python_version < '3.15'",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov",
