@@ -245,14 +245,14 @@ class BaseObject:
         if rz:
             bb = self.rz_bbox.expanded(margin)
             return (
-                f"(x > {bb.rmin}) * (x < {bb.rmax})"
-                f" * (z > {bb.zmin}) * (z < {bb.zmax}) * ({voltage})"
+                f"(x > {_num(bb.rmin)}) * (x < {_num(bb.rmax)})"
+                f" * (z > {_num(bb.zmin)}) * (z < {_num(bb.zmax)}) * ({voltage})"
             )
         bb = self.bbox.expanded(margin)
         return (
-            f"(x > {bb.xmin}) * (x < {bb.xmax})"
-            f" * (y > {bb.ymin}) * (y < {bb.ymax})"
-            f" * (z > {bb.zmin}) * (z < {bb.zmax}) * ({voltage})"
+            f"(x > {_num(bb.xmin)}) * (x < {_num(bb.xmax)})"
+            f" * (y > {_num(bb.ymin)}) * (y < {_num(bb.ymax)})"
+            f" * (z > {_num(bb.zmin)}) * (z < {_num(bb.zmax)}) * ({voltage})"
         )
 
     @property
@@ -379,19 +379,33 @@ class Diff(BaseObject):
         return self.a.rz_bbox
 
 
+def _num(value) -> str:
+    """Format a number for an expression without float round-off noise.
+
+    12 significant digits, e.g. 0.009000000000000001 -> 0.009.
+    """
+    return f"{float(value) + 0.0:.12g}"  # + 0.0 turns -0.0 into 0.0
+
+
 def _shift(coord: str, offset) -> str:
     """Return the expression for coord - offset, avoiding a double minus."""
     if offset == 0:
         return coord
     if offset < 0:
-        return f"({coord}+{-offset})"
-    return f"({coord}-{offset})"
+        return f"({coord}+{_num(-offset)})"
+    return f"({coord}-{_num(offset)})"
 
 
 def _lincomb(a, u: str, b, v: str) -> str:
-    """Return the expression for a*u + b*v, writing a negative b as a subtraction."""
-    op = "-" if b < 0 else "+"
-    return f"({a}*{u}{op}{abs(b)}*{v})"
+    """Return the expression for a*u + b*v, dropping zero terms and unit factors."""
+    terms = ""
+    for coef, var in ((a, u), (b, v)):
+        if coef == 0:
+            continue
+        sign = "-" if coef < 0 else ("+" if terms else "")
+        term = var if abs(coef) == 1 else f"{_num(abs(coef))}*{var}"
+        terms += sign + term
+    return f"({terms or '0'})"
 
 
 def _nest(func: str, args) -> str:
@@ -447,7 +461,7 @@ def _between(coord: str, lo, hi) -> list[str]:
     if np.isfinite(lo):
         terms.append(_shift(coord, lo))
     if np.isfinite(hi):
-        terms.append(f"({hi}-{coord})")
+        terms.append(f"({_num(hi)}-{coord})")
     return terms
 
 
@@ -517,11 +531,11 @@ class Scale(BaseObject):
 
     def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
         if self.sx != 1:
-            x = f"({x}/{self.sx})"
+            x = f"({x}/{_num(self.sx)})"
         if self.sy != 1:
-            y = f"({y}/{self.sy})"
+            y = f"({y}/{_num(self.sy)})"
         if self.sz != 1:
-            z = f"({z}/{self.sz})"
+            z = f"({z}/{_num(self.sz)})"
         return self.obj.build_expr(rz, x, y, z)
 
     def _children(self):
@@ -601,8 +615,9 @@ class Rotate(BaseObject):
         self.axis = axis
 
     def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
-        c = float(np.cos(self.angle))
-        s = float(np.sin(self.angle))
+        # round so that e.g. cos(pi/2) = 6e-17 becomes an exact 0
+        c = round(float(np.cos(self.angle)), 12)
+        s = round(float(np.sin(self.angle)), 12)
         if self.axis == "z":
             x, y = _lincomb(c, x, s, y), _lincomb(-s, x, c, y)
         elif self.axis == "y":
@@ -676,7 +691,7 @@ class Cylinder(BaseObject):
         return BBox(-r, r, -r, r, -np.inf, np.inf)
 
     def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
-        return f"({self.radius}-{_rho(rz, x, y)})"
+        return f"({_num(self.radius)}-{_rho(rz, x, y)})"
 
     @property
     def rz_bbox(self) -> RZBBox:
@@ -814,7 +829,8 @@ class Torus(BaseObject):
     def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
         # Signed distance to the tube: r - sqrt((rho - R)^2 + (z - z0)^2)
         rho = _rho(rz, x, y)
-        return f"({self.r}-sqrt(({rho}-{self.R})**2 + {_shift(z, self.z0)}**2))"
+        r, big_r = _num(self.r), _num(self.R)
+        return f"({r}-sqrt(({rho}-{big_r})**2 + {_shift(z, self.z0)}**2))"
 
     def eval(self, x, y, z):
         r_xy = np.sqrt(x**2 + y**2)
@@ -863,7 +879,7 @@ class Cone(BaseObject):
         z1, z2 = self.z1, self.z2
         slope = (self.r2 - self.r1) / (z2 - z1)
         op = "-" if slope < 0 else "+"
-        r_of_z = f"{self.r1} {op} {abs(slope)}*{_shift(z, z1)}"
+        r_of_z = f"{_num(self.r1)} {op} {_num(abs(slope))}*{_shift(z, z1)}"
         return _min(f"({r_of_z}-{_rho(rz, x, y)})", *_between(z, z1, z2))
 
     def eval(self, x, y, z):

@@ -19,6 +19,7 @@ from warpx_geometry import (
     Cylinder,
     CylinderZ,
     CylinderZ_hollow,
+    Geometry,
     Intersection,
     Rotate,
     RoundedCylinderZ_hollow,
@@ -193,3 +194,19 @@ def test_long_unions_are_balanced():
     assert max_depth < 30
     assert stack.signed_value(0.015, 0.0, 4.9915) == pytest.approx(0.0015)
     assert stack.signed_value(0.015, 0.0, 4.995) < 0
+
+
+def test_numbers_have_no_float_noise():
+    lens = Einzellens(radius=0.01, thickness=0.002, length=0.01, gap=0.004)
+    expr = str(lens) + Geometry(lens.named("lens", 1), rz=True).to_potential_expr()
+    assert "0.009000000000000001" not in expr
+    assert "0.019000000000000003" not in expr
+    assert "(x-0.009)" in expr or "-0.009)" in expr
+    assert "0.019" in expr
+
+
+def test_rotation_by_right_angle_is_exact():
+    expr = str(Rotate(Box(0, 1, 0, 2, 0, 3), angle=np.pi / 2, axis="z"))
+    assert "e-17" not in expr
+    assert "(y>" not in expr  # sanity: no comparisons
+    assert "(-x)" in expr  # x' = y, y' = -x
