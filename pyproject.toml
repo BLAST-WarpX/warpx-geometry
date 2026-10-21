@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "warpx-geometry"
-version = "0.1.0"
+version = "0.2.0"
 authors = [
    { name = "Arun Persaud", email = "apersaud@lbl.gov" },
 ]
