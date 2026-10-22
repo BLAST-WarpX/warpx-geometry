@@ -1,6 +1,7 @@
 # WarpX Geometry
 
-[![tests](https://github.com/FSIBT/warpx-geometry/actions/workflows/tests.yml/badge.svg)](https://github.com/FSIBT/warpx-geometry/actions/workflows/tests.yml)
+[![tests](https://github.com/BLAST-WarpX/warpx-geometry/actions/workflows/tests.yml/badge.svg)](https://github.com/BLAST-WarpX/warpx-geometry/actions/workflows/tests.yml)
+[![License](https://img.shields.io/badge/license-BSD--3--Clause--LBNL-blue.svg)](https://spdx.org/licenses/BSD-3-Clause-LBNL.html)
 
 Simple geometry objects for [WarpX](https://warpx.readthedocs.io/) embedded boundaries.
 
@@ -49,7 +50,7 @@ are available.
 
 ```bash
 # Install from source
-git clone https://github.com/FSIBT/warpx-geometry.git
+git clone https://github.com/BLAST-WarpX/warpx-geometry.git
 cd warpx-geometry
 uv pip install -e .
 ```
@@ -58,7 +59,7 @@ uv pip install -e .
 
 ```bash
 # Install from source
-git clone https://github.com/FSIBT/warpx-geometry.git
+git clone https://github.com/BLAST-WarpX/warpx-geometry.git
 cd warpx-geometry
 pip install -e .
 ```
@@ -551,9 +552,19 @@ Contributions are welcome! Please:
 5. Format code: `uv run ruff format .`
 6. Submit a pull request
 
-## License
+## Copyright Notice
 
-BSD-3-Clause
+WarpX Copyright (c) 2018, The Regents of the University of California,
+through Lawrence Berkeley National Laboratory (subject to receipt of any
+required approvals from the U.S. Dept. of Energy).  All rights reserved.
+
+If you have questions about your rights to use or distribute this software,
+please contact Berkeley Lab's Innovation & Partnerships Office at
+IPO@lbl.gov.
+
+Please see the full license agreement in [LICENSE.txt](LICENSE.txt).
+Please see the notices in [NOTICE.txt](NOTICE.txt).
+The SPDX license identifier is `BSD-3-Clause-LBNL`.
 
 ## Citation
 
@@ -563,7 +574,7 @@ If you use this package in your research, please cite:
 @software{warpx_geometry,
   author = {Persaud, Arun},
   title = {WarpX Geometry: Simple geometry objects for WarpX},
-  url = {https://github.com/FSIBT/warpx-geometry},
+  url = {https://github.com/BLAST-WarpX/warpx-geometry},
   year = {2026}
 }
 ```
@@ -575,4 +586,4 @@ If you use this package in your research, please cite:
 
 ## Contact
 
-For questions or issues, please [open an issue](https://github.com/FSIBT/warpx-geometry/issues) on GitHub.
+For questions or issues, please [open an issue](https://github.com/BLAST-WarpX/warpx-geometry/issues) on GitHub.
