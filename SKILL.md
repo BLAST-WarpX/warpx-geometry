@@ -110,7 +110,7 @@ class Sphere(BaseObject):
         return f"({self.r}-sqrt({dx}**2 + {dy}**2 + {dz}**2))"
 
     def eval(self, x, y, z):
-        val = self.r**2 - ((x - self.cx)**2 + (y - self.cy)**2 + (z - self.cz)**2)
+        val = self.r**2 - ((x - self.cx) ** 2 + (y - self.cy) ** 2 + (z - self.cz) ** 2)
         return np.where(val > 0, 1, 0)
 ```
 
@@ -272,19 +272,27 @@ produce a WarpX-compatible potential string.
 from warpx_geometry import CylinderZ_hollow, Geometry, Union
 
 ring_0 = CylinderZ_hollow(
-    radius_outer=0.067, radius_inner=0.051,
-    zmin=-0.0005, zmax=0.0005,
-    name="ring_0", default_voltage=1600,
+    radius_outer=0.067,
+    radius_inner=0.051,
+    zmin=-0.0005,
+    zmax=0.0005,
+    name="ring_0",
+    default_voltage=1600,
 )
 ring_1 = CylinderZ_hollow(
-    radius_outer=0.067, radius_inner=0.051,
-    zmin=0.0095, zmax=0.0105,
-    name="ring_1", default_voltage=800,
+    radius_outer=0.067,
+    radius_inner=0.051,
+    zmin=0.0095,
+    zmax=0.0105,
+    name="ring_1",
+    default_voltage=800,
 )
 tube = CylinderZ_hollow(
-    radius_outer=0.100, radius_inner=0.080,
-    zmin=-0.1, zmax=0.2,
-    name="outer_cyl",   # default_voltage=0 → skipped automatically
+    radius_outer=0.100,
+    radius_inner=0.080,
+    zmin=-0.1,
+    zmax=0.2,
+    name="outer_cyl",  # default_voltage=0 → skipped automatically
 )
 
 geo = Geometry(Union(Union(ring_0, ring_1), tube), rz=True)
@@ -341,7 +349,7 @@ from warpx_geometry import bboxes_overlap
 
 a_bb = geo.conductors["ring_0"].rz_bbox.expanded(0.002)
 b_bb = geo.conductors["ring_1"].rz_bbox.expanded(0.002)
-print(bboxes_overlap(a_bb, b_bb))   # True / False
+print(bboxes_overlap(a_bb, b_bb))  # True / False
 # Touching boundaries (a_bb.zmax == b_bb.zmin) → False (strict inequality)
 ```
 
@@ -376,18 +384,21 @@ import matplotlib.pyplot as plt
 from warpx_geometry import plot_rz_geometry_components
 
 components = {
-    "ring_0":    (ring_0, "red"),
-    "outer_cyl": (tube,   "gray"),
+    "ring_0": (ring_0, "red"),
+    "outer_cyl": (tube, "gray"),
 }
 
 fig, ax = plt.subplots(figsize=(12, 4))
 plot_rz_geometry_components(
-    ax, components,
-    z_range=(-0.1, 0.2), r_range=(0.0, 0.11),
-    bbox_margin=0.002,   # same margin as to_potential_expr
+    ax,
+    components,
+    z_range=(-0.1, 0.2),
+    r_range=(0.0, 0.11),
+    bbox_margin=0.002,  # same margin as to_potential_expr
     bbox_kwargs={"linestyle": "--", "linewidth": 1.5},
 )
-ax.set_xlabel("z (mm)"); ax.set_ylabel("r (mm)")
+ax.set_xlabel("z (mm)")
+ax.set_ylabel("r (mm)")
 plt.show()
 ```
 
@@ -400,9 +411,10 @@ from warpx_geometry import plot_rz_bboxes
 
 # ax already contains a background (contourf / imshow)
 plot_rz_bboxes(
-    ax, components,
+    ax,
+    components,
     margin=0.002,
-    unit_scale=1000,     # m → mm (must match axis units)
+    unit_scale=1000,  # m → mm (must match axis units)
     bbox_kwargs={"linestyle": ":", "linewidth": 2, "alpha": 0.4},
 )
 ```
