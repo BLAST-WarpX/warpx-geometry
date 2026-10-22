@@ -1,6 +1,7 @@
 # WarpX Geometry
 
-[![tests](https://github.com/FSIBT/warpx-geometry/actions/workflows/tests.yml/badge.svg)](https://github.com/FSIBT/warpx-geometry/actions/workflows/tests.yml)
+[![tests](https://github.com/BLAST-WarpX/warpx-geometry/actions/workflows/tests.yml/badge.svg)](https://github.com/BLAST-WarpX/warpx-geometry/actions/workflows/tests.yml)
+[![License](https://img.shields.io/badge/license-BSD--3--Clause--LBNL-blue.svg)](https://spdx.org/licenses/BSD-3-Clause-LBNL.html)
 
 Simple geometry objects for [WarpX](https://warpx.readthedocs.io/) embedded boundaries.
 
@@ -49,7 +50,7 @@ are available.
 
 ```bash
 # Install from source
-git clone https://github.com/FSIBT/warpx-geometry.git
+git clone https://github.com/BLAST-WarpX/warpx-geometry.git
 cd warpx-geometry
 uv pip install -e .
 ```
@@ -58,7 +59,7 @@ uv pip install -e .
 
 ```bash
 # Install from source
-git clone https://github.com/FSIBT/warpx-geometry.git
+git clone https://github.com/BLAST-WarpX/warpx-geometry.git
 cd warpx-geometry
 pip install -e .
 ```
@@ -105,12 +106,8 @@ hollow = outer - inner  # Using - operator for difference
 
 # Or use pre-built hollow cylinder
 from warpx_geometry import CylinderZ_hollow
-hollow = CylinderZ_hollow(
-    radius_outer=0.011, 
-    radius_inner=0.010, 
-    zmin=0.0, 
-    zmax=0.1
-)
+
+hollow = CylinderZ_hollow(radius_outer=0.011, radius_inner=0.010, zmin=0.0, zmax=0.1)
 
 # Combine multiple objects
 electrode1 = CylinderZ(radius=0.01, zmin=0.0, zmax=0.02)
@@ -130,18 +127,15 @@ import numpy as np
 
 # Create a simple electrode
 electrode = CylinderZ_hollow(
-    radius_outer=0.015,
-    radius_inner=0.012, 
-    zmin=0.0, 
-    zmax=0.05
+    radius_outer=0.015, radius_inner=0.012, zmin=0.0, zmax=0.05
 )
 
 # Or use a pre-built Einzellens (3-electrode focusing lens)
 lens = Einzellens(
-    radius=0.015,      # Mean radius
-    thickness=0.002,   # Wall thickness
-    length=0.02,       # Length of each electrode
-    gap=0.01          # Gap between electrodes
+    radius=0.015,  # Mean radius
+    thickness=0.002,  # Wall thickness
+    length=0.02,  # Length of each electrode
+    gap=0.01,  # Gap between electrodes
 )
 
 geom = Geometry(lens)
@@ -149,7 +143,7 @@ geom = Geometry(lens)
 # Evaluate on RZ grid for visualization
 z = np.linspace(0.0, 0.15, 100)
 r = np.linspace(0.0, 0.02, 50)
-Z, R = np.meshgrid(z, r, indexing='ij')
+Z, R = np.meshgrid(z, r, indexing="ij")
 
 # In RZ: x represents r, y=0
 X = R
@@ -165,25 +159,27 @@ from warpx_geometry import RoundedCylinderZ, Cone, Torus, Geometry
 
 # Cylinder with rounded (filleted) edges
 rounded = RoundedCylinderZ(
-    radius=0.010, 
-    zmin=0.0, 
-    zmax=0.05, 
+    radius=0.010,
+    zmin=0.0,
+    zmax=0.05,
     fillet_radius=0.001,
     fillet_top=True,
-    fillet_bottom=True
+    fillet_bottom=True,
 )
 
 # Cone (tapered cylinder)
 cone = Cone(
-    z1=0.0, z2=0.1,    # Axial extent
-    r1=0.010, r2=0.005  # Radii at z1 and z2
+    z1=0.0,
+    z2=0.1,  # Axial extent
+    r1=0.010,
+    r2=0.005,  # Radii at z1 and z2
 )
 
 # Torus (useful for fillets and rounded edges)
 torus = Torus(
     major_radius=0.010,  # Distance from z-axis to tube center
     minor_radius=0.001,  # Tube radius
-    z_center=0.1         # Z-position
+    z_center=0.1,  # Z-position
 )
 
 geom = Geometry(rounded + cone)
@@ -251,21 +247,21 @@ fig, ax = plt.subplots(figsize=(10, 6))
 
 # Plot multiple components with different colors
 components = {
-    'tube': (vacuum_tube, 'lightgray'),
-    'electrode': (electrode, 'red'),
+    "tube": (vacuum_tube, "lightgray"),
+    "electrode": (electrode, "red"),
 }
 
 plot_rz_geometry_components(
-    ax, 
+    ax,
     components,
     z_range=(0.0, 0.2),  # meters
-    r_range=(0.0, 0.025), # meters
-    resolution_factor=10  # Higher = smoother edges
+    r_range=(0.0, 0.025),  # meters
+    resolution_factor=10,  # Higher = smoother edges
 )
 
-ax.set_xlabel('z (mm)')
-ax.set_ylabel('r (mm)')
-ax.set_title('RZ Geometry')
+ax.set_xlabel("z (mm)")
+ax.set_ylabel("r (mm)")
+ax.set_title("RZ Geometry")
 plt.show()
 ```
 
@@ -278,10 +274,7 @@ from warpx_geometry import CylinderZ_hollow, Geometry
 
 # Define your geometry
 electrode = CylinderZ_hollow(
-    radius_outer=0.015,
-    radius_inner=0.012,
-    zmin=0.0,
-    zmax=0.05
+    radius_outer=0.015, radius_inner=0.012, zmin=0.0, zmax=0.05
 )
 
 geom = Geometry(electrode)
@@ -327,19 +320,28 @@ from warpx_geometry import CylinderZ_hollow, Geometry, Union
 
 # Build a multi-electrode system — give each conductor a name
 ring_0 = CylinderZ_hollow(
-    radius_outer=0.067, radius_inner=0.051,
-    zmin=-0.001, zmax=0.001,
-    name="ring_0", default_voltage=1600,
+    radius_outer=0.067,
+    radius_inner=0.051,
+    zmin=-0.001,
+    zmax=0.001,
+    name="ring_0",
+    default_voltage=1600,
 )
 ring_1 = CylinderZ_hollow(
-    radius_outer=0.067, radius_inner=0.051,
-    zmin=0.010, zmax=0.012,
-    name="ring_1", default_voltage=800,
+    radius_outer=0.067,
+    radius_inner=0.051,
+    zmin=0.010,
+    zmax=0.012,
+    name="ring_1",
+    default_voltage=800,
 )
 tube = CylinderZ_hollow(
-    radius_outer=0.100, radius_inner=0.080,
-    zmin=-0.1, zmax=0.2,
-    name="outer_cyl", default_voltage=0,  # always grounded
+    radius_outer=0.100,
+    radius_inner=0.080,
+    zmin=-0.1,
+    zmax=0.2,
+    name="outer_cyl",
+    default_voltage=0,  # always grounded
 )
 
 geo = Geometry(Union(Union(ring_0, ring_1), tube), rz=True)
@@ -355,10 +357,12 @@ eb_expr = str(geo)
 pot_expr = geo.to_potential_expr()
 
 # Override voltages at call time (e.g. time-varying string expressions)
-pot_expr = geo.to_potential_expr({
-    "ring_0": "1600 * pulse(t)",
-    "ring_1": "800 * pulse(t)",
-})
+pot_expr = geo.to_potential_expr(
+    {
+        "ring_0": "1600 * pulse(t)",
+        "ring_1": "800 * pulse(t)",
+    }
+)
 # Zero-voltage conductors are automatically omitted.
 # Non-overlapping conductors use "+"; overlapping bboxes use "max()".
 ```
@@ -382,18 +386,21 @@ Every shape exposes a `rz_bbox` property that returns an `RZBBox(rmin, rmax, zmi
 from warpx_geometry import CylinderZ_hollow, RZBBox, bboxes_overlap
 
 ring = CylinderZ_hollow(
-    radius_outer=0.067, radius_inner=0.051,
-    zmin=-0.001, zmax=0.001,
+    radius_outer=0.067,
+    radius_inner=0.051,
+    zmin=-0.001,
+    zmax=0.001,
 )
 
-bb = ring.rz_bbox          # RZBBox(rmin=0.051, rmax=0.067, zmin=-0.001, zmax=0.001)
+bb = ring.rz_bbox  # RZBBox(rmin=0.051, rmax=0.067, zmin=-0.001, zmax=0.001)
 bb_exp = bb.expanded(0.002)  # RZBBox(rmin=0.049, rmax=0.069, zmin=-0.003, zmax=0.003)
 
 # Check whether two bboxes overlap (touching counts as NOT overlapping)
 from warpx_geometry import CylinderZ_hollow, bboxes_overlap
+
 a = CylinderZ_hollow(0.067, 0.051, 0.000, 0.010, name="a")
 b = CylinderZ_hollow(0.067, 0.051, 0.010, 0.020, name="b")  # touching at z=0.010
-print(bboxes_overlap(a.rz_bbox, b.rz_bbox))   # False — touching is not overlap
+print(bboxes_overlap(a.rz_bbox, b.rz_bbox))  # False — touching is not overlap
 print(bboxes_overlap(a.rz_bbox.expanded(0.001), b.rz_bbox.expanded(0.001)))  # True
 ```
 
@@ -404,16 +411,14 @@ You can call it directly or use the `bbox_margin` parameter of
 `plot_rz_geometry_components` to get geometry and bboxes in one call.
 
 ```python
-from warpx_geometry import (
-    CylinderZ_hollow, plot_rz_geometry_components, plot_rz_bboxes
-)
+from warpx_geometry import CylinderZ_hollow, plot_rz_geometry_components, plot_rz_bboxes
 import matplotlib.pyplot as plt
 
 ring = CylinderZ_hollow(0.067, 0.051, -0.001, 0.001, name="ring_0")
-tube = CylinderZ_hollow(0.100, 0.080, -0.1,    0.2,   name="outer_cyl")
+tube = CylinderZ_hollow(0.100, 0.080, -0.1, 0.2, name="outer_cyl")
 
 components = {
-    "ring_0":    (ring, "red"),
+    "ring_0": (ring, "red"),
     "outer_cyl": (tube, "gray"),
 }
 
@@ -422,9 +427,11 @@ fig, ax = plt.subplots()
 # Plot geometry + bboxes in one call
 # bbox_margin=0 → exact bboxes; bbox_margin=0.002 → expanded by 2mm
 plot_rz_geometry_components(
-    ax, components,
-    z_range=(-0.1, 0.2), r_range=(0.0, 0.11),
-    bbox_margin=0,          # show unexpanded bboxes
+    ax,
+    components,
+    z_range=(-0.1, 0.2),
+    r_range=(0.0, 0.11),
+    bbox_margin=0,  # show unexpanded bboxes
     bbox_kwargs={"linestyle": "--", "linewidth": 1},
 )
 
@@ -443,8 +450,12 @@ margin = 0.002  # same margin passed to to_potential_expr
 plot_rz_geometry_components(ax, components, z_range=(-0.1, 0.2), r_range=(0.0, 0.11))
 
 # Overlay expanded bboxes — dashed rectangles, same colour as each component
-plot_rz_bboxes(ax, components, margin=margin,
-               bbox_kwargs={"linestyle": ":", "linewidth": 2, "alpha": 0.5})
+plot_rz_bboxes(
+    ax,
+    components,
+    margin=margin,
+    bbox_kwargs={"linestyle": ":", "linewidth": 2, "alpha": 0.5},
+)
 ```
 
 `bbox_kwargs` accepts any keyword argument understood by
@@ -551,9 +562,19 @@ Contributions are welcome! Please:
 5. Format code: `uv run ruff format .`
 6. Submit a pull request
 
-## License
+## Copyright Notice
 
-BSD-3-Clause
+WarpX Copyright (c) 2018, The Regents of the University of California,
+through Lawrence Berkeley National Laboratory (subject to receipt of any
+required approvals from the U.S. Dept. of Energy).  All rights reserved.
+
+If you have questions about your rights to use or distribute this software,
+please contact Berkeley Lab's Innovation & Partnerships Office at
+IPO@lbl.gov.
+
+Please see the full license agreement in [LICENSE.txt](LICENSE.txt).
+Please see the notices in [NOTICE.txt](NOTICE.txt).
+The SPDX license identifier is `BSD-3-Clause-LBNL`.
 
 ## Citation
 
@@ -563,7 +584,7 @@ If you use this package in your research, please cite:
 @software{warpx_geometry,
   author = {Persaud, Arun},
   title = {WarpX Geometry: Simple geometry objects for WarpX},
-  url = {https://github.com/FSIBT/warpx-geometry},
+  url = {https://github.com/BLAST-WarpX/warpx-geometry},
   year = {2026}
 }
 ```
@@ -575,4 +596,4 @@ If you use this package in your research, please cite:
 
 ## Contact
 
-For questions or issues, please [open an issue](https://github.com/FSIBT/warpx-geometry/issues) on GitHub.
+For questions or issues, please [open an issue](https://github.com/BLAST-WarpX/warpx-geometry/issues) on GitHub.
