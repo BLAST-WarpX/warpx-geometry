@@ -39,10 +39,17 @@ dev = [
     "pytest-cov",
     "ruff>=0.1.0",
 ]
+docs = [
+    "myst-parser",
+    "sphinx",
+    "sphinx-copybutton",
+    "sphinx-design",
+    "sphinx-rtd-theme",
+]
 
 [project.urls]
 Homepage = "https://github.com/BLAST-WarpX/warpx-geometry"
-Documentation = "https://github.com/BLAST-WarpX/warpx-geometry#readme"
+Documentation = "https://warpx-geometry.readthedocs.io/en/stable/"
 Repository = "https://github.com/BLAST-WarpX/warpx-geometry"
 Issues = "https://github.com/BLAST-WarpX/warpx-geometry/issues"
 Changelog = "https://github.com/BLAST-WarpX/warpx-geometry/blob/main/CHANGELOG.md"

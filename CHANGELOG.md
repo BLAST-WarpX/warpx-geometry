@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Geometry.bbox` and a readable `repr` for shapes and `Geometry`.
 - `examples/warpx_einzel_lens.py`, a complete WarpX run through PICMI.
 - `title` and `color` arguments for `plot_particles2D`.
+- Documentation on Read the Docs, written in Markdown with Sphinx and MyST.
+- A skill for AI assistants in `skills/warpx-geometry/`, and `AGENTS.md` for working on
+  the package, which replaces `SKILL.md`.
+- A workflow that builds the docs and rebuilds them for each release.
 
 ### Changed
 
@@ -30,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** duplicate conductor names and unknown names in `volt_dict` now raise
   a `ValueError`.
 - **Breaking:** `plot_particles2D` no longer sets a "Protons" title by default.
+
+- The README is shorter, and its guides moved to the documentation. The instructions
+  for WarpX now use the correct parameter names.
 
 ### Fixed
 

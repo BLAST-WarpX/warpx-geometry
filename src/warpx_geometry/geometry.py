@@ -560,7 +560,8 @@ class Scale(BaseObject):
         obj: Geometry object to scale
         sx, sy, sz: Scale factors per axis (must be > 0)
 
-    Example:
+    Example::
+
         # Double the radius of a cylinder
         big = Scale(Cylinder(radius=0.01), sx=2, sy=2)
         # Stretch a box in z only
@@ -625,7 +626,8 @@ def scale_around(obj, sx=1, sy=1, sz=1, cx=0, cy=0, cz=0):
 
     Equivalent to: translate to origin, scale, translate back.
 
-    Example:
+    Example::
+
         # Scale cylinder by 2x in z around its base (z=0)
         scaled = scale_around(cyl, sz=2, cz=0)
     """
@@ -640,7 +642,8 @@ def scale_around(obj, sx=1, sy=1, sz=1, cx=0, cy=0, cz=0):
 def scale_to_bbox_center(obj, sx=1, sy=1, sz=1):
     """Scale obj around its own bounding box center.
 
-    Example:
+    Example::
+
         # Double the size of an electrode around its own center
         big = scale_to_bbox_center(electrode, sx=2, sy=2, sz=2)
     """
@@ -656,7 +659,8 @@ class Rotate(BaseObject):
         angle: Rotation angle in radians (counter-clockwise when viewed from +axis)
         axis: Rotation axis — 'x', 'y', or 'z' (default 'z')
 
-    Example:
+    Example::
+
         # Rotate a box 45 degrees around the z-axis
         rotated = Rotate(box, angle=np.pi / 4, axis="z")
     """
@@ -878,7 +882,8 @@ class Torus(BaseObject):
         minor_radius: Radius of the tube itself
         z_center: Z-position of the torus center (default 0)
 
-    Example:
+    Example::
+
         # Torus at z=0.1m with 10mm major radius and 1mm minor radius
         torus = Torus(major_radius=0.010, minor_radius=0.001, z_center=0.1)
     """
@@ -929,7 +934,8 @@ class Cone(BaseObject):
         z1, z2: Axial extent (z1 < z2)
         r1, r2: Radii at z1 and z2 respectively
 
-    Example:
+    Example::
+
         # Cone from z=0 to z=0.1m, tapering from 10mm to 5mm radius
         cone = Cone(z1=0.0, z2=0.1, r1=0.010, r2=0.005)
     """
@@ -986,7 +992,8 @@ class RoundedCylinderZ(Union):
         fillet_top: Add fillet at top (default True)
         fillet_bottom: Add fillet at bottom (default True)
 
-    Example:
+    Example::
+
         # 10mm radius cylinder from z=0 to z=0.05m with 1mm fillets
         cyl = RoundedCylinderZ(radius=0.010, zmin=0.0, zmax=0.05, fillet_radius=0.001)
     """
@@ -1058,11 +1065,15 @@ class RoundedCylinderZ_hollow(Diff):
         fillet_radius: Radius of fillets
         fillet_top, fillet_bottom: Enable fillets at top/bottom
 
-    Example:
+    Example::
+
         # Hollow cylinder (tube) with rounded edges
         tube = RoundedCylinderZ_hollow(
-            radius_outer=0.011, radius_inner=0.010,
-            zmin=0.0, zmax=0.05, fillet_radius=0.001
+            radius_outer=0.011,
+            radius_inner=0.010,
+            zmin=0.0,
+            zmax=0.05,
+            fillet_radius=0.001,
         )
     """
 
