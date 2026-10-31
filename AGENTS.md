@@ -83,6 +83,6 @@ conda-forge.
 
 The version comes from the git tag through hatch-vcs, so never set it by hand. Move the
 `Unreleased` entries in `CHANGELOG.md` to a new version section, merge to `main`, then
-tag the merged commit as `vX.Y.Z` and push the tag. That publishes to PyPI through
-`publish.yml` and rebuilds the docs through `docs.yml`. Versions follow Semantic
+tag the merged commit as `vX.Y.Z` and push the tag. That publishes to PyPI and creates
+the GitHub release through `publish.yml`, and rebuilds the docs through `docs.yml`. Versions follow Semantic
 Versioning, and the changelog follows Keep a Changelog.
