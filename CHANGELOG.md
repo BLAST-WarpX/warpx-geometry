@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `to_potential_expr` now uses each conductor's own shape as its
+  region instead of its bounding box, and `margin` is the distance from the surface.
+  The default `margin` is 1% of the smallest conductor size. Conductors are combined
+  with an `if` chain, so the expression strings look different.
+- **Breaking:** transforms that RZ geometry cannot represent now raise a `ValueError`:
+  `Translate` in y, `Translate` in x of a shape on the axis, `Rotate` that tilts the
+  z axis, and `Scale` with `sx != sy`.
+- **Breaking:** invalid shape parameters now raise a `ValueError`, such as negative
+  radii, swapped limits, a `Scale` of 0 or fillets that do not fit. A hollow cylinder
+  needs an inner radius larger than 0.
+- **Breaking:** duplicate conductor names and unknown names in `volt_dict` now raise
+  a `ValueError`.
+
+### Fixed
+
+- Conductors in `to_potential_expr` kept the wrong voltage when bounding boxes
+  overlapped: negative voltages were lost, and concentric conductors in XYZ got the
+  voltage of the outer one.
+- Named infinite shapes wrote `inf` into the potential, which WarpX rejects.
+- `RoundedCylinderZ` and `RoundedCylinderZ_hollow` no longer have a dish in their end
+  caps, and `RoundedCylinderZ` with both fillets off is a finite cylinder.
+- `Rotate.bbox` no longer returns `nan` for infinite shapes, and is exact at right
+  angles.
+
 ## [0.3.0] - 2026-10-31
 
 First release on PyPI.

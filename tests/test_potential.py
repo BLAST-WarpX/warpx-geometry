@@ -205,72 +205,7 @@ class TestToPotentialExprSingle:
             radius_outer=0.067, radius_inner=0.051, zmin=-0.001, zmax=0.001
         )
         geo = Geometry(c, rz=True)
-        expr = geo.to_potential_expr({"ring_0": 1600})  # name doesn't exist
-        assert expr == "0"
-
-
-# ---------------------------------------------------------------------------
-# Two non-overlapping conductors → "+" combination
-# ---------------------------------------------------------------------------
-
-
-class TestToPotentialExprNonOverlapping:
-    def test_plus_combination(self):
-        a = CylinderZ_hollow(
-            radius_outer=0.067,
-            radius_inner=0.051,
-            zmin=-0.001,
-            zmax=0.001,
-            name="ring_0",
-        )
-        b = CylinderZ_hollow(
-            radius_outer=0.067, radius_inner=0.051, zmin=0.05, zmax=0.06, name="ring_1"
-        )
-        geo = Geometry(Union(a, b), rz=True)
-        expr = geo.to_potential_expr({"ring_0": 1600, "ring_1": 800})
-        # Non-overlapping z ranges → use + not max()
-        assert " + " in expr
-        assert "max(" not in expr
-        assert "1600" in expr
-        assert "800" in expr
-
-
-# ---------------------------------------------------------------------------
-# Two overlapping conductors → max() combination
-# ---------------------------------------------------------------------------
-
-
-class TestToPotentialExprOverlapping:
-    def test_max_combination(self):
-        a = CylinderZ_hollow(
-            radius_outer=0.067, radius_inner=0.051, zmin=-0.005, zmax=0.005, name="a"
-        )
-        b = CylinderZ_hollow(
-            radius_outer=0.090, radius_inner=0.068, zmin=-0.005, zmax=0.005, name="b"
-        )
-        # These share the same z range; with margin the bboxes overlap in z
-        geo = Geometry(Union(a, b), rz=True)
-        expr = geo.to_potential_expr({"a": 1000, "b": 500}, margin=0.001)
-        assert "max(" in expr
-
-
-# ---------------------------------------------------------------------------
-# Margin expands the region
-# ---------------------------------------------------------------------------
-
-
-class TestToPotentialExprMargin:
-    def test_margin_expands_region(self):
-        c = CylinderZ_hollow(
-            radius_outer=0.067, radius_inner=0.051, zmin=0.0, zmax=0.001, name="r"
-        )
-        geo = Geometry(c, rz=True)
-        expr_no_margin = geo.to_potential_expr({"r": 1600}, margin=0)
-        expr_margin = geo.to_potential_expr({"r": 1600}, margin=0.002)
-        # The z bounds should differ
-        assert expr_no_margin != expr_margin
-        # The margin expression should have larger z extent
-        assert "0.003" in expr_margin  # zmax + margin = 0.001 + 0.002
+        assert geo.to_potential_expr() == "0"
 
 
 class TestNamedComposites:

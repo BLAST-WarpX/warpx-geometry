@@ -49,6 +49,8 @@ shapes:
 
 """
 
+import re
+
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -115,7 +117,7 @@ class RZBBox:
     """Bounding box in RZ (cylindrical) coordinates.
 
     Stores (rmin, rmax, zmin, zmax).  rmin >= 0 always.
-    Used for potential-expression generation and overlap checks in RZ simulations.
+    Used for overlap checks in RZ simulations.
     """
 
     def __init__(self, rmin: float, rmax: float, zmin: float, zmax: float):
@@ -227,6 +229,8 @@ class BaseObject:
         A named object registers itself and hides any names below it.
         """
         if self.name is not None:
+            if registry.get(self.name, self) is not self:
+                raise ValueError(f"conductor name {self.name!r} is used twice")
             registry[self.name] = self
             return
         for child in self._children():
@@ -240,20 +244,18 @@ class BaseObject:
         """
         return evaluate_expr(self.build_expr(rz), x, y, z)
 
-    def to_potential_expr(self, voltage, rz: bool, margin: float = 0) -> str:
-        """Return a WarpX potential expression assigning voltage to this region."""
-        if rz:
-            bb = self.rz_bbox.expanded(margin)
-            return (
-                f"(x > {_num(bb.rmin)}) * (x < {_num(bb.rmax)})"
-                f" * (z > {_num(bb.zmin)}) * (z < {_num(bb.zmax)}) * ({voltage})"
-            )
-        bb = self.bbox.expanded(margin)
-        return (
-            f"(x > {_num(bb.xmin)}) * (x < {_num(bb.xmax)})"
-            f" * (y > {_num(bb.ymin)}) * (y < {_num(bb.ymax)})"
-            f" * (z > {_num(bb.zmin)}) * (z < {_num(bb.zmax)}) * ({voltage})"
-        )
+    def to_potential_expr(self, voltage, rz: bool, margin: float | None = None) -> str:
+        """Return a WarpX potential expression assigning voltage to this object.
+
+        See Geometry.to_potential_expr for margin.
+        """
+        if margin is None:
+            margin = _default_margin([self], rz)
+        return f"if({self._region_expr(rz, margin)}, {voltage}, 0)"
+
+    def _region_expr(self, rz: bool, margin: float) -> str:
+        """Return the condition for being inside this object or within margin of it."""
+        return f"{self.build_expr(rz)} > {_num(-margin)}"
 
     @property
     def bbox(self):
@@ -408,6 +410,41 @@ def _lincomb(a, u: str, b, v: str) -> str:
     return f"({terms or '0'})"
 
 
+def _rotated_range(a, ulo, uhi, b, vlo, vhi) -> tuple:
+    """Return the (min, max) of a*u + b*v for u and v in the given ranges."""
+    us = (0.0, 0.0) if a == 0 else (a * ulo, a * uhi)  # also avoids 0 * inf
+    vs = (0.0, 0.0) if b == 0 else (b * vlo, b * vhi)
+    return min(us) + min(vs), max(us) + max(vs)
+
+
+def _check_order(lo_name, lo, hi_name, hi):
+    if not lo < hi:
+        raise ValueError(f"{lo_name} must be less than {hi_name}, got {lo} and {hi}")
+
+
+def _check_positive(name, value):
+    if not value > 0:
+        raise ValueError(f"{name} must be positive, got {value}")
+
+
+def _default_margin(objs, rz: bool) -> float:
+    """Return a margin that covers WarpX's approximation of the surface.
+
+    WarpX evaluates the potential on a piecewise linear surface, which is off
+    by about dx**2 / (8 * curvature radius). That stays below 1% of an object's
+    size as long as the grid resolves the object at all.
+    """
+    extents = []
+    for obj in objs:
+        if rz:
+            bb = obj.rz_bbox
+            extents += [bb.rmax - bb.rmin, bb.zmax - bb.zmin]
+        else:
+            extents += obj.bbox.size
+    extents = [e for e in extents if 0 < e < np.inf]
+    return 0.01 * min(extents) if extents else 0.0
+
+
 def _nest(func: str, args) -> str:
     """Return func(...) over args as a balanced tree of two-argument calls.
 
@@ -443,10 +480,12 @@ def evaluate_expr(expr: str, x, y, z):
         "max": np.maximum,
         "min": np.minimum,
         "sqrt": np.sqrt,
+        "where": np.where,
         "x": x,
         "y": y,
         "z": z,
     }
+    expr = re.sub(r"\bif\(", "where(", expr)  # if is a keyword in Python
     return eval(expr, {"__builtins__": {}}, namespace)
 
 
@@ -474,9 +513,23 @@ class Translate(BaseObject):
         self.dz = z
 
     def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
+        if rz:
+            self._check_rz()
         return self.obj.build_expr(
             rz, _shift(x, self.dx), _shift(y, self.dy), _shift(z, self.dz)
         )
+
+    def _check_rz(self):
+        """Raise unless this translation keeps the geometry axisymmetric."""
+        if self.dy != 0:
+            raise ValueError(f"RZ geometry has no y direction, got y={self.dy}")
+        if self.dx != 0:
+            rmin = self.obj.rz_bbox.rmin
+            if rmin <= 0 or rmin + self.dx <= 0:
+                raise ValueError(
+                    f"translating by x={self.dx} in RZ only works for a ring that "
+                    f"stays off the axis, but the object starts at r={rmin}"
+                )
 
     def _children(self):
         return (self.obj,)
@@ -524,12 +577,20 @@ class Scale(BaseObject):
 
     def __init__(self, obj, sx=1, sy=1, sz=1):
         super().__init__()
+        _check_positive("sx", sx)
+        _check_positive("sy", sy)
+        _check_positive("sz", sz)
         self.obj = obj
         self.sx = sx
         self.sy = sy
         self.sz = sz
 
     def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
+        if rz and self.sx != self.sy:
+            raise ValueError(
+                "RZ geometry needs the same radial scale, "
+                f"got sx={self.sx} and sy={self.sy}"
+            )
         if self.sx != 1:
             x = f"({x}/{_num(self.sx)})"
         if self.sy != 1:
@@ -610,6 +671,8 @@ class Rotate(BaseObject):
 
     def __init__(self, obj, angle, axis="z"):
         super().__init__()
+        if axis not in ("x", "y", "z"):
+            raise ValueError(f"axis must be 'x', 'y', or 'z', got {axis!r}")
         self.obj = obj
         self.angle = angle
         self.axis = axis
@@ -618,15 +681,26 @@ class Rotate(BaseObject):
         # round so that e.g. cos(pi/2) = 6e-17 becomes an exact 0
         c = round(float(np.cos(self.angle)), 12)
         s = round(float(np.sin(self.angle)), 12)
+        if rz:
+            return self._build_rz_expr(c, s, x, y, z)
         if self.axis == "z":
             x, y = _lincomb(c, x, s, y), _lincomb(-s, x, c, y)
         elif self.axis == "y":
             x, z = _lincomb(c, x, s, z), _lincomb(-s, x, c, z)
         elif self.axis == "x":
             y, z = _lincomb(c, y, s, z), _lincomb(-s, y, c, z)
-        else:
-            raise ValueError(f"axis must be 'x', 'y', or 'z', got {self.axis!r}")
         return self.obj.build_expr(rz, x, y, z)
+
+    def _build_rz_expr(self, c, s, x, y, z) -> str:
+        """Return the expression in RZ, which only allows flipping z."""
+        if self.axis == "z":
+            return self.obj.build_expr(True, x, y, z)  # axisymmetric
+        if s != 0:
+            raise ValueError(
+                f"rotating around {self.axis} by {self.angle} tilts the axis of "
+                "symmetry, which RZ geometry cannot do"
+            )
+        return self.obj.build_expr(True, x, y, z if c > 0 else f"(-{z})")
 
     def _children(self):
         return (self.obj,)
@@ -637,33 +711,27 @@ class Rotate(BaseObject):
             return self.obj.eval(c * x + s * y, -s * x + c * y, z)
         elif self.axis == "y":
             return self.obj.eval(c * x + s * z, y, -s * x + c * z)
-        elif self.axis == "x":
+        else:  # axis == "x"
             return self.obj.eval(x, c * y + s * z, -s * y + c * z)
-        else:
-            raise ValueError(f"axis must be 'x', 'y', or 'z', got {self.axis!r}")
 
     @property
     def bbox(self):
         b = self.obj.bbox
-        c, s = np.cos(self.angle), np.sin(self.angle)
+        # same rounding as build_expr, so that right angles stay exact
+        c = round(float(np.cos(self.angle)), 12)
+        s = round(float(np.sin(self.angle)), 12)
         if self.axis == "z":
-            xs = [b.xmin, b.xmin, b.xmax, b.xmax]
-            ys = [b.ymin, b.ymax, b.ymin, b.ymax]
-            cx = [c * xi - s * yi for xi, yi in zip(xs, ys, strict=False)]
-            cy = [s * xi + c * yi for xi, yi in zip(xs, ys, strict=False)]
-            return BBox(min(cx), max(cx), min(cy), max(cy), b.zmin, b.zmax)
+            x = _rotated_range(c, b.xmin, b.xmax, -s, b.ymin, b.ymax)
+            y = _rotated_range(s, b.xmin, b.xmax, c, b.ymin, b.ymax)
+            return BBox(*x, *y, b.zmin, b.zmax)
         elif self.axis == "y":
-            xs = [b.xmin, b.xmin, b.xmax, b.xmax]
-            zs = [b.zmin, b.zmax, b.zmin, b.zmax]
-            cx = [c * xi - s * zi for xi, zi in zip(xs, zs, strict=False)]
-            cz = [s * xi + c * zi for xi, zi in zip(xs, zs, strict=False)]
-            return BBox(min(cx), max(cx), b.ymin, b.ymax, min(cz), max(cz))
+            x = _rotated_range(c, b.xmin, b.xmax, -s, b.zmin, b.zmax)
+            z = _rotated_range(s, b.xmin, b.xmax, c, b.zmin, b.zmax)
+            return BBox(*x, b.ymin, b.ymax, *z)
         else:  # axis == "x"
-            ys = [b.ymin, b.ymin, b.ymax, b.ymax]
-            zs = [b.zmin, b.zmax, b.zmin, b.zmax]
-            cy = [c * yi - s * zi for yi, zi in zip(ys, zs, strict=False)]
-            cz = [s * yi + c * zi for yi, zi in zip(ys, zs, strict=False)]
-            return BBox(b.xmin, b.xmax, min(cy), max(cy), min(cz), max(cz))
+            y = _rotated_range(c, b.ymin, b.ymax, -s, b.zmin, b.zmax)
+            z = _rotated_range(s, b.ymin, b.ymax, c, b.zmin, b.zmax)
+            return BBox(b.xmin, b.xmax, *y, *z)
 
     @property
     def rz_bbox(self) -> RZBBox:
@@ -676,6 +744,7 @@ class Rotate(BaseObject):
 class Cylinder(BaseObject):
     def __init__(self, radius, name=None, default_voltage=0):
         super().__init__()
+        _check_positive("radius", radius)
         self.radius = radius
         self.name = name
         self.default_voltage = default_voltage
@@ -712,6 +781,7 @@ class SlabZ(BaseObject):
 
     def __init__(self, zmin, zmax):
         super().__init__()
+        _check_order("zmin", zmin, "zmax", zmax)
         self.zmin = zmin
         self.zmax = zmax
 
@@ -735,6 +805,8 @@ class CylinderZ_hollow(Diff):
     def __init__(
         self, radius_outer, radius_inner, zmin, zmax, name=None, default_voltage=0
     ):
+        _check_positive("radius_inner", radius_inner)
+        _check_order("radius_inner", radius_inner, "radius_outer", radius_outer)
         self._r_inner = radius_inner
         self._r_outer = radius_outer
         self._zmin = zmin
@@ -764,6 +836,9 @@ class Box(BaseObject):
         self, xmin, xmax, ymin, ymax, zmin, zmax, name=None, default_voltage=0
     ):
         super().__init__()
+        _check_order("xmin", xmin, "xmax", xmax)
+        _check_order("ymin", ymin, "ymax", ymax)
+        _check_order("zmin", zmin, "zmax", zmax)
         self.name = name
         self.default_voltage = default_voltage
         self.xmin = xmin
@@ -820,6 +895,9 @@ class Torus(BaseObject):
         self, major_radius, minor_radius, z_center=0, name=None, default_voltage=0
     ):
         super().__init__()
+        _check_positive("minor_radius", minor_radius)
+        if major_radius < 0:
+            raise ValueError(f"major_radius must not be negative, got {major_radius}")
         self.name = name
         self.default_voltage = default_voltage
         self.R = major_radius
@@ -866,6 +944,9 @@ class Cone(BaseObject):
 
     def __init__(self, z1, z2, r1, r2, name=None, default_voltage=0):
         super().__init__()
+        _check_order("z1", z1, "z2", z2)
+        if r1 < 0 or r2 < 0 or r1 + r2 == 0:
+            raise ValueError(f"radii must not be negative or both 0, got {r1}, {r2}")
         self.name = name
         self.default_voltage = default_voltage
         self.z1 = z1
@@ -929,12 +1010,23 @@ class RoundedCylinderZ(Union):
         name=None,
         default_voltage=0,
     ):
+        _check_positive("fillet_radius", fillet_radius)
+        _check_order("fillet_radius", fillet_radius, "radius", radius)
+        height = (fillet_top + fillet_bottom) * fillet_radius
+        if height > zmax - zmin:
+            raise ValueError(
+                f"fillets of {fillet_radius} do not fit between {zmin} and {zmax}"
+            )
+
         # Main cylinder body (reduced height to accommodate fillets)
         z_body_min = zmin + (fillet_radius if fillet_bottom else 0)
         z_body_max = zmax - (fillet_radius if fillet_top else 0)
         body = CylinderZ(radius, z_body_min, z_body_max)
 
-        parts = [body]
+        # Full height core, fills the end caps inside the fillets
+        core = CylinderZ(radius - fillet_radius, zmin, zmax)
+
+        parts = [body, core]
 
         # Bottom fillet (torus)
         if fillet_bottom:
@@ -994,6 +1086,8 @@ class RoundedCylinderZ_hollow(Diff):
         name=None,
         default_voltage=0,
     ):
+        _check_positive("radius_inner", radius_inner)
+        _check_order("radius_inner", radius_inner, "radius_outer", radius_outer)
         self._r_inner = radius_inner
         # Outer rounded cylinder
         outer = RoundedCylinderZ(
@@ -1036,23 +1130,35 @@ class Geometry:
     def eval(self, x, y, z):
         return self.object.eval(x, y, z)
 
-    def to_potential_expr(self, volt_dict=None, margin: float = 0) -> str:
+    def to_potential_expr(self, volt_dict=None, margin: float | None = None) -> str:
         """Return a combined WarpX potential expression for all named conductors.
+
+        Each conductor's voltage applies inside the conductor's own shape and
+        within margin of its surface. If regions overlap, the first conductor wins.
 
         Args:
             volt_dict: mapping of conductor name → voltage (number or string).
                 Missing names use the conductor's default_voltage.
-            margin: expand each bbox by this amount (m) before generating the
-                region mask. Helps ensure grid points overlap the conductor.
+            margin: distance from a conductor's surface (m) that still gets its
+                voltage. WarpX evaluates the potential on an approximate surface,
+                so this has to be larger than zero and smaller than the gap between
+                conductors. The default is 1% of the smallest conductor size.
 
         Returns:
             Combined potential expression string, or "0" if all voltages are zero.
         """
         if volt_dict is None:
             volt_dict = {}
+        unknown = set(volt_dict) - set(self.conductors)
+        if unknown:
+            raise ValueError(
+                f"unknown conductors {sorted(unknown)}, "
+                f"available: {sorted(self.conductors)}"
+            )
+        if margin is None:
+            margin = _default_margin(self.conductors.values(), self.rz)
 
         parts = []
-        bboxes = []
         for name, obj in self.conductors.items():
             voltage = volt_dict.get(name, obj.default_voltage)
             # Skip purely numeric zeros
@@ -1061,27 +1167,15 @@ class Geometry:
                     continue
             except (TypeError, ValueError):
                 pass  # string voltages are never skipped
-            parts.append(obj.to_potential_expr(voltage, rz=self.rz, margin=margin))
-            bboxes.append(
-                obj.rz_bbox.expanded(margin) if self.rz else obj.bbox.expanded(margin)
-            )
+            parts.append((obj._region_expr(self.rz, margin), voltage))
 
         if not parts:
             return "0"
 
-        # If any pair of expanded bboxes overlaps, use max() to avoid double-counting
-        use_max = any(
-            bboxes_overlap(bboxes[i], bboxes[j])
-            for i in range(len(bboxes))
-            for j in range(i + 1, len(bboxes))
-        )
-
-        if use_max:
-            result = parts[0]
-            for p in parts[1:]:
-                result = f"max({result}, {p})"
-            return result
-        return " + ".join(parts)
+        result = "0"
+        for region, voltage in reversed(parts):
+            result = f"if({region}, {voltage}, {result})"
+        return result
 
     def plot(self, xmin, xmax, Nx, ymin, ymax, Ny, zmin, zmax, Nz):
         x = np.linspace(xmin, xmax, Nx)

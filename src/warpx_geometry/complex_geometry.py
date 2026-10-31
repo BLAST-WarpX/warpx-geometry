@@ -3,6 +3,11 @@ from . import geometry as g
 
 class Einzellens(g.Union):
     def __init__(self, radius, thickness, length, gap, name=None, default_voltage=0):
+        g._check_positive("thickness", thickness)
+        g._check_positive("length", length)
+        if gap < 0:
+            raise ValueError(f"gap must not be negative, got {gap}")
+
         radius_inner = radius - thickness / 2
         radius_outer = radius + thickness / 2
 
