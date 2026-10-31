@@ -494,9 +494,23 @@ class Translate(BaseObject):
         self.dz = z
 
     def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
+        if rz:
+            self._check_rz()
         return self.obj.build_expr(
             rz, _shift(x, self.dx), _shift(y, self.dy), _shift(z, self.dz)
         )
+
+    def _check_rz(self):
+        """Raise unless this translation keeps the geometry axisymmetric."""
+        if self.dy != 0:
+            raise ValueError(f"RZ geometry has no y direction, got y={self.dy}")
+        if self.dx != 0:
+            rmin = self.obj.rz_bbox.rmin
+            if rmin <= 0 or rmin + self.dx <= 0:
+                raise ValueError(
+                    f"translating by x={self.dx} in RZ only works for a ring that "
+                    f"stays off the axis, but the object starts at r={rmin}"
+                )
 
     def _children(self):
         return (self.obj,)
@@ -550,6 +564,11 @@ class Scale(BaseObject):
         self.sz = sz
 
     def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
+        if rz and self.sx != self.sy:
+            raise ValueError(
+                "RZ geometry needs the same radial scale, "
+                f"got sx={self.sx} and sy={self.sy}"
+            )
         if self.sx != 1:
             x = f"({x}/{_num(self.sx)})"
         if self.sy != 1:
@@ -638,6 +657,8 @@ class Rotate(BaseObject):
         # round so that e.g. cos(pi/2) = 6e-17 becomes an exact 0
         c = round(float(np.cos(self.angle)), 12)
         s = round(float(np.sin(self.angle)), 12)
+        if rz:
+            return self._build_rz_expr(c, s, x, y, z)
         if self.axis == "z":
             x, y = _lincomb(c, x, s, y), _lincomb(-s, x, c, y)
         elif self.axis == "y":
@@ -647,6 +668,17 @@ class Rotate(BaseObject):
         else:
             raise ValueError(f"axis must be 'x', 'y', or 'z', got {self.axis!r}")
         return self.obj.build_expr(rz, x, y, z)
+
+    def _build_rz_expr(self, c, s, x, y, z) -> str:
+        """Return the expression in RZ, which only allows flipping z."""
+        if self.axis == "z":
+            return self.obj.build_expr(True, x, y, z)  # axisymmetric
+        if s != 0:
+            raise ValueError(
+                f"rotating around {self.axis} by {self.angle} tilts the axis of "
+                "symmetry, which RZ geometry cannot do"
+            )
+        return self.obj.build_expr(True, x, y, z if c > 0 else f"(-{z})")
 
     def _children(self):
         return (self.obj,)
