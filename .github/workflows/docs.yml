@@ -1,0 +1,35 @@
+name: docs
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # the package version comes from the git tags
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - run: uv run --extra docs sphinx-build -W --keep-going -b html docs docs/_build/html
+
+  # Read the Docs builds on its own on pushes; this makes sure that the stable
+  # version is rebuilt for every release.
+  rebuild-stable:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger a build on Read the Docs
+        env:
+          RTD_TOKEN: ${{ secrets.RTD_TOKEN }}
+        run: >-
+          curl --fail-with-body -X POST
+          -H "Authorization: Token $RTD_TOKEN"
+          https://app.readthedocs.org/api/v3/projects/warpx-geometry/versions/stable/builds/
