@@ -86,8 +86,8 @@ def plot_rz_bboxes(ax, components_dict, margin=0, unit_scale=1000, bbox_kwargs=N
     Each component's ``rz_bbox`` (optionally expanded by *margin*) is drawn as
     a dashed rectangle whose colour matches the component colour.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     ax : matplotlib axis
         Axis to draw on. The axis limits are used to clip infinite bounds.
     components_dict : dict
@@ -105,8 +105,8 @@ def plot_rz_bboxes(ax, components_dict, margin=0, unit_scale=1000, bbox_kwargs=N
         Merged with defaults ``{'fill': False, 'linestyle': '--',
         'linewidth': 1.5, 'alpha': 0.8}``.
 
-    Returns:
-    --------
+    Returns
+    -------
     ax : matplotlib axis
 
     Example:
@@ -175,8 +175,8 @@ def plot_rz_geometry_components(
     """
     Plot RZ geometry components with different colors using alpha masks.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     ax : matplotlib axis
         Axis to plot on (should already have background, e.g., phi field)
     components_dict : dict
@@ -290,8 +290,8 @@ def create_rz_geometry_mask(geom_obj, z_range, r_range, resolution_factor=10):
 
     Useful for custom plotting or further processing.
 
-    Parameters:
-    -----------
+    Parameters
+    ----------
     geom_obj : BaseObject
         Geometry object (or combined geometry)
     z_range, r_range : tuple
@@ -299,8 +299,8 @@ def create_rz_geometry_mask(geom_obj, z_range, r_range, resolution_factor=10):
     resolution_factor : int
         Resolution multiplier (default: 10)
 
-    Returns:
-    --------
+    Returns
+    -------
     Z, R, mask : numpy arrays
         Meshgrids and binary mask (>0 inside geometry)
     """

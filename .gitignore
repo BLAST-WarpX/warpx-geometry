@@ -65,3 +65,6 @@ Thumbs.db
 # Project specific
 _version.py
 .ruff_cache/
+
+# Sphinx
+docs/_build/
