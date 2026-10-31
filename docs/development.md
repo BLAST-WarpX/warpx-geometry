@@ -46,4 +46,6 @@ Versions come from git tags through hatch-vcs and follow
 
 4. Approve the deployment in the Actions tab.
 
-The tag publishes the package to PyPI and rebuilds the `stable` documentation.
+The tag publishes the package to PyPI, creates a GitHub release with the changelog
+entry and the built files, and rebuilds the `stable` documentation. The release stops
+before publishing if the changelog has no section for the version.
