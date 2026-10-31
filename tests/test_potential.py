@@ -1,5 +1,7 @@
 """Tests for name/default_voltage, collect_named, and to_potential_expr."""
 
+import pytest
+
 from warpx_geometry import (
     Box,
     CylinderZ_hollow,
@@ -10,6 +12,7 @@ from warpx_geometry import (
     Union,
 )
 from warpx_geometry.complex_geometry import Einzellens
+from warpx_geometry.geometry import evaluate_expr
 
 # ---------------------------------------------------------------------------
 # name and default_voltage on shape classes
@@ -206,6 +209,31 @@ class TestToPotentialExprSingle:
         )
         geo = Geometry(c, rz=True)
         assert geo.to_potential_expr() == "0"
+
+
+class TestEinzellensVoltages:
+    def test_voltages_name_the_tubes(self):
+        lens = Einzellens(0.01, 0.002, 0.01, 0.004, voltages=(0, 5000, -100))
+        geo = Geometry(lens, rz=True)
+        assert list(geo.conductors) == ["lens_1", "lens_2", "lens_3"]
+        assert lens.name is None
+        phi = geo.to_potential_expr()
+        assert evaluate_expr(phi, 0.01, 0.0, 0.0) == 5000
+        assert evaluate_expr(phi, 0.01, 0.0, 0.014) == -100
+        assert evaluate_expr(phi, 0.01, 0.0, -0.014) == 0
+
+    def test_name_is_the_prefix(self):
+        lens = Einzellens(0.01, 0.002, 0.01, 0.004, name="l", voltages=(1, 2, 3))
+        assert list(Geometry(lens).conductors) == ["l_1", "l_2", "l_3"]
+
+    def test_override_by_tube_name(self):
+        lens = Einzellens(0.01, 0.002, 0.01, 0.004, voltages=(0, 1, 0))
+        phi = Geometry(lens).to_potential_expr({"lens_2": 7})
+        assert evaluate_expr(phi, 0.01, 0.0, 0.0) == 7
+
+    def test_wrong_number_of_voltages_raises(self):
+        with pytest.raises(ValueError, match="3 voltages"):
+            Einzellens(0.01, 0.002, 0.01, 0.004, voltages=(0, 1))
 
 
 class TestNamedComposites:

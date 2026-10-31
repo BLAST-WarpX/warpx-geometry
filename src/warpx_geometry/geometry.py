@@ -9,7 +9,7 @@ in the warpX universe and to translate and rotate them.
 
 WarpX uses the following definition when given a function to define an
 embedded object. Given x,y,z values to a function the point is either
-inside or outside of a conducator depending on:
+inside or outside of a conductor depending on:
 
    > 0 inside the conductor
    < 0 outside of the conductor.
@@ -30,23 +30,6 @@ quickly. Primitives must be strictly negative everywhere outside; a region
 of exact zeros would be treated as surface.
 
 eval() still returns 0/1 (inside/outside) for plotting and tests.
-
-TODO: color by voltage or by object number/group
-
-shapes:
-
-* UNION, DIFF, add intersection and perhaps clone or COPY (can we used deepcopy?)
-* Cylinder with cuts in Z
-* hollow cylinder
-* cone
-*
-* ROTATION
-* Add tests
-
-* plot 2d cuts? Add alpha regions for voltages
-
-* plotting with higher resolution than real deal?
-
 """
 
 import re
@@ -185,6 +168,15 @@ class BaseObject:
 
     def __str__(self):
         return self.build_expr(rz=False)
+
+    def __repr__(self):
+        args = [
+            f"{key.lstrip('_')}={value!r}"
+            for key, value in vars(self).items()
+            if not (key == "name" and value is None)
+            and not (key == "default_voltage" and value == 0)
+        ]
+        return f"{type(self).__name__}({', '.join(args)})"
 
     def __add__(self, other):
         return Union(self, other)
@@ -1122,6 +1114,13 @@ class Geometry:
 
     def __str__(self):
         return self.build_eb_expr()
+
+    def __repr__(self):
+        return f"Geometry({self.object!r}, rz={self.rz})"
+
+    @property
+    def bbox(self):
+        return self.object.bbox
 
     @property
     def rz_bbox(self):

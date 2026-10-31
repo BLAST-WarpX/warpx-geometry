@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Einzellens(..., voltages=(v1, v2, v3))` names the three tubes and sets their
+  voltages.
+- `Geometry.bbox` and a readable `repr` for shapes and `Geometry`.
+- `examples/warpx_einzel_lens.py`, a complete WarpX run through PICMI.
+- `title` and `color` arguments for `plot_particles2D`.
+
 ### Changed
 
 - **Breaking:** `to_potential_expr` now uses each conductor's own shape as its
@@ -21,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   needs an inner radius larger than 0.
 - **Breaking:** duplicate conductor names and unknown names in `volt_dict` now raise
   a `ValueError`.
+- **Breaking:** `plot_particles2D` no longer sets a "Protons" title by default.
 
 ### Fixed
 
