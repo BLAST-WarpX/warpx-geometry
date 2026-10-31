@@ -49,6 +49,8 @@ shapes:
 
 """
 
+import re
+
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -115,7 +117,7 @@ class RZBBox:
     """Bounding box in RZ (cylindrical) coordinates.
 
     Stores (rmin, rmax, zmin, zmax).  rmin >= 0 always.
-    Used for potential-expression generation and overlap checks in RZ simulations.
+    Used for overlap checks in RZ simulations.
     """
 
     def __init__(self, rmin: float, rmax: float, zmin: float, zmax: float):
@@ -240,20 +242,18 @@ class BaseObject:
         """
         return evaluate_expr(self.build_expr(rz), x, y, z)
 
-    def to_potential_expr(self, voltage, rz: bool, margin: float = 0) -> str:
-        """Return a WarpX potential expression assigning voltage to this region."""
-        if rz:
-            bb = self.rz_bbox.expanded(margin)
-            return (
-                f"(x > {_num(bb.rmin)}) * (x < {_num(bb.rmax)})"
-                f" * (z > {_num(bb.zmin)}) * (z < {_num(bb.zmax)}) * ({voltage})"
-            )
-        bb = self.bbox.expanded(margin)
-        return (
-            f"(x > {_num(bb.xmin)}) * (x < {_num(bb.xmax)})"
-            f" * (y > {_num(bb.ymin)}) * (y < {_num(bb.ymax)})"
-            f" * (z > {_num(bb.zmin)}) * (z < {_num(bb.zmax)}) * ({voltage})"
-        )
+    def to_potential_expr(self, voltage, rz: bool, margin: float | None = None) -> str:
+        """Return a WarpX potential expression assigning voltage to this object.
+
+        See Geometry.to_potential_expr for margin.
+        """
+        if margin is None:
+            margin = _default_margin([self], rz)
+        return f"if({self._region_expr(rz, margin)}, {voltage}, 0)"
+
+    def _region_expr(self, rz: bool, margin: float) -> str:
+        """Return the condition for being inside this object or within margin of it."""
+        return f"{self.build_expr(rz)} > {_num(-margin)}"
 
     @property
     def bbox(self):
@@ -408,6 +408,24 @@ def _lincomb(a, u: str, b, v: str) -> str:
     return f"({terms or '0'})"
 
 
+def _default_margin(objs, rz: bool) -> float:
+    """Return a margin that covers WarpX's approximation of the surface.
+
+    WarpX evaluates the potential on a piecewise linear surface, which is off
+    by about dx**2 / (8 * curvature radius). That stays below 1% of an object's
+    size as long as the grid resolves the object at all.
+    """
+    extents = []
+    for obj in objs:
+        if rz:
+            bb = obj.rz_bbox
+            extents += [bb.rmax - bb.rmin, bb.zmax - bb.zmin]
+        else:
+            extents += obj.bbox.size
+    extents = [e for e in extents if 0 < e < np.inf]
+    return 0.01 * min(extents) if extents else 0.0
+
+
 def _nest(func: str, args) -> str:
     """Return func(...) over args as a balanced tree of two-argument calls.
 
@@ -443,10 +461,12 @@ def evaluate_expr(expr: str, x, y, z):
         "max": np.maximum,
         "min": np.minimum,
         "sqrt": np.sqrt,
+        "where": np.where,
         "x": x,
         "y": y,
         "z": z,
     }
+    expr = re.sub(r"\bif\(", "where(", expr)  # if is a keyword in Python
     return eval(expr, {"__builtins__": {}}, namespace)
 
 
@@ -1036,23 +1056,29 @@ class Geometry:
     def eval(self, x, y, z):
         return self.object.eval(x, y, z)
 
-    def to_potential_expr(self, volt_dict=None, margin: float = 0) -> str:
+    def to_potential_expr(self, volt_dict=None, margin: float | None = None) -> str:
         """Return a combined WarpX potential expression for all named conductors.
+
+        Each conductor's voltage applies inside the conductor's own shape and
+        within margin of its surface. If regions overlap, the first conductor wins.
 
         Args:
             volt_dict: mapping of conductor name → voltage (number or string).
                 Missing names use the conductor's default_voltage.
-            margin: expand each bbox by this amount (m) before generating the
-                region mask. Helps ensure grid points overlap the conductor.
+            margin: distance from a conductor's surface (m) that still gets its
+                voltage. WarpX evaluates the potential on an approximate surface,
+                so this has to be larger than zero and smaller than the gap between
+                conductors. The default is 1% of the smallest conductor size.
 
         Returns:
             Combined potential expression string, or "0" if all voltages are zero.
         """
         if volt_dict is None:
             volt_dict = {}
+        if margin is None:
+            margin = _default_margin(self.conductors.values(), self.rz)
 
         parts = []
-        bboxes = []
         for name, obj in self.conductors.items():
             voltage = volt_dict.get(name, obj.default_voltage)
             # Skip purely numeric zeros
@@ -1061,27 +1087,15 @@ class Geometry:
                     continue
             except (TypeError, ValueError):
                 pass  # string voltages are never skipped
-            parts.append(obj.to_potential_expr(voltage, rz=self.rz, margin=margin))
-            bboxes.append(
-                obj.rz_bbox.expanded(margin) if self.rz else obj.bbox.expanded(margin)
-            )
+            parts.append((obj._region_expr(self.rz, margin), voltage))
 
         if not parts:
             return "0"
 
-        # If any pair of expanded bboxes overlaps, use max() to avoid double-counting
-        use_max = any(
-            bboxes_overlap(bboxes[i], bboxes[j])
-            for i in range(len(bboxes))
-            for j in range(i + 1, len(bboxes))
-        )
-
-        if use_max:
-            result = parts[0]
-            for p in parts[1:]:
-                result = f"max({result}, {p})"
-            return result
-        return " + ".join(parts)
+        result = "0"
+        for region, voltage in reversed(parts):
+            result = f"if({region}, {voltage}, {result})"
+        return result
 
     def plot(self, xmin, xmax, Nx, ymin, ymax, Ny, zmin, zmax, Nz):
         x = np.linspace(xmin, xmax, Nx)

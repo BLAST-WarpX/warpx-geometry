@@ -93,9 +93,6 @@ def plot_rz_bboxes(ax, components_dict, margin=0, unit_scale=1000, bbox_kwargs=N
         instances (colour defaults to ``"black"``).
     margin : float
         Expand each bbox by this amount in meters before drawing (default 0).
-        Pass the same value you would use for
-        :meth:`~warpx_geometry.Geometry.to_potential_expr` to visualise the
-        actual potential regions.
     unit_scale : float
         Multiply all coordinates by this factor before drawing.  Default 1000
         converts metres to millimetres, matching the axis units used by
