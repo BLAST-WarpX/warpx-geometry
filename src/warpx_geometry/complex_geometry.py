@@ -2,7 +2,32 @@ from . import geometry as g
 
 
 class Einzellens(g.Union):
-    def __init__(self, radius, thickness, length, gap, name=None, default_voltage=0):
+    """Three tubes along z, centered at z=0.
+
+    Parameters:
+        radius: Mean radius of the tube walls
+        thickness: Wall thickness
+        length: Length of each tube
+        gap: Distance between tubes
+        name, default_voltage: Name the lens as one conductor
+        voltages: Voltages of the three tubes. This names them "<name>_1" to
+            "<name>_3" (name defaults to "lens"), instead of naming the lens.
+
+    Example:
+        # Outer tubes grounded, middle tube at 5 kV
+        lens = Einzellens(0.01, 0.002, 0.01, 0.004, voltages=(0, 5000, 0))
+    """
+
+    def __init__(
+        self,
+        radius,
+        thickness,
+        length,
+        gap,
+        name=None,
+        default_voltage=0,
+        voltages=None,
+    ):
         g._check_positive("thickness", thickness)
         g._check_positive("length", length)
         if gap < 0:
@@ -22,6 +47,14 @@ class Einzellens(g.Union):
         a = g.CylinderZ_hollow(radius_outer, radius_inner, a_min, a_max)
         b = g.CylinderZ_hollow(radius_outer, radius_inner, b_min, b_max)
         c = g.CylinderZ_hollow(radius_outer, radius_inner, c_min, c_max)
+
+        if voltages is not None:
+            if len(voltages) != 3:
+                raise ValueError(f"need 3 voltages, got {len(voltages)}")
+            prefix = name or "lens"
+            name = None
+            for i, (tube, voltage) in enumerate(zip((a, b, c), voltages), start=1):
+                tube.named(f"{prefix}_{i}", voltage)
 
         tmp = g.Union(a, b)
         super().__init__(tmp, c)
