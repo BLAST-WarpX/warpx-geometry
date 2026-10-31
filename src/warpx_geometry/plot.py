@@ -109,7 +109,7 @@ def plot_rz_bboxes(ax, components_dict, margin=0, unit_scale=1000, bbox_kwargs=N
     -------
     ax : matplotlib axis
 
-    Example:
+    Examples
     --------
     >>> components = {
     ...     "ring_0": (ring, "red"),
@@ -181,7 +181,7 @@ def plot_rz_geometry_components(
         Axis to plot on (should already have background, e.g., phi field)
     components_dict : dict
         Dictionary mapping names to (geometry_object, color) tuples
-        Example: {'tube': (vacuum_tube, 'gray'), 'electrode': (elec, 'red')}
+        such as ``{'tube': (vacuum_tube, 'gray'), 'electrode': (elec, 'red')}``
     z_range : tuple
         (z_min, z_max) in meters
     r_range : tuple
@@ -201,7 +201,7 @@ def plot_rz_geometry_components(
         rectangles. Merged with defaults {'fill': False, 'linestyle': '--',
         'linewidth': 1.5, 'alpha': 0.8}. Ignored when bbox_margin is None.
 
-    Example:
+    Examples
     --------
     >>> components = {
     ...     "tube": (vacuum_tube, "lightgray"),

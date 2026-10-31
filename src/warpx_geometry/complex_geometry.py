@@ -13,7 +13,8 @@ class Einzellens(g.Union):
         voltages: Voltages of the three tubes. This names them "<name>_1" to
             "<name>_3" (name defaults to "lens"), instead of naming the lens.
 
-    Example:
+    Example::
+
         # Outer tubes grounded, middle tube at 5 kV
         lens = Einzellens(0.01, 0.002, 0.01, 0.004, voltages=(0, 5000, 0))
     """
