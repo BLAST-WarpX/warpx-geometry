@@ -10,7 +10,8 @@ build:
   jobs:
     post_checkout:
       # the package version comes from the git tags
-      - git fetch --unshallow --tags || true
+      - git fetch --unshallow || true
+      - git fetch --tags
 
 sphinx:
   configuration: docs/conf.py
