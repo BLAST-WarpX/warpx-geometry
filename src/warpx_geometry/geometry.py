@@ -229,6 +229,8 @@ class BaseObject:
         A named object registers itself and hides any names below it.
         """
         if self.name is not None:
+            if registry.get(self.name, self) is not self:
+                raise ValueError(f"conductor name {self.name!r} is used twice")
             registry[self.name] = self
             return
         for child in self._children():
@@ -1144,6 +1146,12 @@ class Geometry:
         """
         if volt_dict is None:
             volt_dict = {}
+        unknown = set(volt_dict) - set(self.conductors)
+        if unknown:
+            raise ValueError(
+                f"unknown conductors {sorted(unknown)}, "
+                f"available: {sorted(self.conductors)}"
+            )
         if margin is None:
             margin = _default_margin(self.conductors.values(), self.rz)
 

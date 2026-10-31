@@ -205,8 +205,7 @@ class TestToPotentialExprSingle:
             radius_outer=0.067, radius_inner=0.051, zmin=-0.001, zmax=0.001
         )
         geo = Geometry(c, rz=True)
-        expr = geo.to_potential_expr({"ring_0": 1600})  # name doesn't exist
-        assert expr == "0"
+        assert geo.to_potential_expr() == "0"
 
 
 class TestNamedComposites:
