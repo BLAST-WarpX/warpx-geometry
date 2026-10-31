@@ -53,8 +53,8 @@ class Einzellens(g.Union):
                 raise ValueError(f"need 3 voltages, got {len(voltages)}")
             prefix = name or "lens"
             name = None
-            for i, (tube, voltage) in enumerate(zip((a, b, c), voltages), start=1):
-                tube.named(f"{prefix}_{i}", voltage)
+            for i, tube in enumerate((a, b, c)):
+                tube.named(f"{prefix}_{i + 1}", voltages[i])
 
         tmp = g.Union(a, b)
         super().__init__(tmp, c)

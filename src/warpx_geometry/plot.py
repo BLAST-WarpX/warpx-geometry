@@ -52,6 +52,8 @@ def plot_particles2D(
     N,
     ax=None,
     filename: str | None = None,
+    title: str | None = None,
+    color: str = "r",
 ):
     if ax is None:
         fig, ax = plt.subplots()
@@ -63,10 +65,11 @@ def plot_particles2D(
             data[a].append([b, c])
     for id_ in list(data.keys())[:100]:
         points = np.array(data[id_])
-        ax.plot(points[:, 0], points[:, 1], "r-")
-    plt.title("Protons")
-    plt.xlabel("y")
-    plt.ylabel("z")
+        ax.plot(points[:, 0], points[:, 1], "-", color=color)
+    if title:
+        ax.set_title(title)
+    ax.set_xlabel("y")
+    ax.set_ylabel("z")
     if filename:
         plt.savefig(filename)
     return ax
