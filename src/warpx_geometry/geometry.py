@@ -954,7 +954,10 @@ class RoundedCylinderZ(Union):
         z_body_max = zmax - (fillet_radius if fillet_top else 0)
         body = CylinderZ(radius, z_body_min, z_body_max)
 
-        parts = [body]
+        # Full height core, fills the end caps inside the fillets
+        core = CylinderZ(radius - fillet_radius, zmin, zmax)
+
+        parts = [body, core]
 
         # Bottom fillet (torus)
         if fillet_bottom:
