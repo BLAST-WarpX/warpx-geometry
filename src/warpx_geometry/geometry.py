@@ -186,6 +186,15 @@ class BaseObject:
     def __str__(self):
         return self.build_expr(rz=False)
 
+    def __repr__(self):
+        args = [
+            f"{key.lstrip('_')}={value!r}"
+            for key, value in vars(self).items()
+            if not (key == "name" and value is None)
+            and not (key == "default_voltage" and value == 0)
+        ]
+        return f"{type(self).__name__}({', '.join(args)})"
+
     def __add__(self, other):
         return Union(self, other)
 
@@ -1122,6 +1131,13 @@ class Geometry:
 
     def __str__(self):
         return self.build_eb_expr()
+
+    def __repr__(self):
+        return f"Geometry({self.object!r}, rz={self.rz})"
+
+    @property
+    def bbox(self):
+        return self.object.bbox
 
     @property
     def rz_bbox(self):

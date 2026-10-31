@@ -330,6 +330,29 @@ class TestBBox:
         assert bb.zmax == pytest.approx(0.1)
 
 
+class TestRepr:
+    def test_shape(self):
+        assert repr(Cylinder(0.01)) == "Cylinder(radius=0.01)"
+
+    def test_name_and_voltage_are_shown_when_set(self):
+        r = repr(Cylinder(0.01, name="c", default_voltage=5))
+        assert r == "Cylinder(name='c', default_voltage=5, radius=0.01)"
+
+    def test_composite_shows_its_parts(self):
+        assert "Box(" in repr(Translate(Box(0, 1, 0, 1, 0, 1), x=1))
+
+    def test_geometry(self):
+        assert repr(Geometry(Cylinder(1), rz=True)) == (
+            "Geometry(Cylinder(radius=1), rz=True)"
+        )
+
+
+class TestGeometryBBox:
+    def test_bbox_is_the_object_bbox(self):
+        bb = Geometry(Box(0, 1, 2, 3, 4, 5)).bbox
+        assert (bb.xmin, bb.ymax, bb.zmax) == (0, 3, 5)
+
+
 class TestScale:
     """Test Scale transform and factory functions."""
 
