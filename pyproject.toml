@@ -1,10 +1,10 @@
 [build-system]
-requires = ["uv_build>=0.13,<0.14"]
-build-backend = "uv_build"
+requires = ["hatchling>=1.27", "hatch-vcs>=0.4"]
+build-backend = "hatchling.build"
 
 [project]
 name = "warpx-geometry"
-version = "0.2.0"
+dynamic = ["version"]
 authors = [
    { name = "Arun Persaud", email = "apersaud@lbl.gov" },
 ]
@@ -45,7 +45,13 @@ Homepage = "https://github.com/BLAST-WarpX/warpx-geometry"
 Documentation = "https://github.com/BLAST-WarpX/warpx-geometry#readme"
 Repository = "https://github.com/BLAST-WarpX/warpx-geometry"
 Issues = "https://github.com/BLAST-WarpX/warpx-geometry/issues"
+Changelog = "https://github.com/BLAST-WarpX/warpx-geometry/blob/main/CHANGELOG.md"
 
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.targets.sdist]
+include = ["/src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

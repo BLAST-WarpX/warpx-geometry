@@ -238,7 +238,7 @@ uv run ruff check --fix .
 4. Format code: `uv run ruff format .`
 5. Check style: `uv run ruff check .`
 6. Update README if adding user-facing features
-7. Update version via git tags (uses hatch-vcs)
+7. Tag a commit on `main` to release (see Version Management)
 
 ## Version Management
 
@@ -246,7 +246,9 @@ This package uses `hatch-vcs` for version management:
 - Version is automatically derived from git tags
 - Format: `v0.1.0`, `v0.2.0`, etc.
 - Don't manually edit version numbers
-- Release process: tag commit, push tag
+- Release process: update `CHANGELOG.md`, merge to `main`, tag the merged commit, push tag
+- Versions follow Semantic Versioning; `CHANGELOG.md` follows Keep a Changelog
+- Pushing a tag publishes to PyPI via `.github/workflows/publish.yml`
 
 ## Integration with WarpX
 

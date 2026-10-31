@@ -11,17 +11,17 @@ This package provides an easy way to define simple and complex 3D geometries as 
 
 An einzel lens followed by a suppressor ring and a Faraday cup, built in RZ and
 shown as a 3D cutaway and as r-z cuts colored by name and by voltage
-([`examples/einzel_lens_faraday_cup.py`](examples/einzel_lens_faraday_cup.py)):
+([`examples/einzel_lens_faraday_cup.py`](https://github.com/BLAST-WarpX/warpx-geometry/blob/main/examples/einzel_lens_faraday_cup.py)):
 
-![Einzel lens and Faraday cup, 3D cutaway](docs/images/einzel_lens_faraday_cup_3d.png)
+![Einzel lens and Faraday cup, 3D cutaway](https://raw.githubusercontent.com/BLAST-WarpX/warpx-geometry/main/docs/images/einzel_lens_faraday_cup_3d.png)
 
-![Einzel lens and Faraday cup, r-z cuts](docs/images/einzel_lens_faraday_cup_rz.png)
+![Einzel lens and Faraday cup, r-z cuts](https://raw.githubusercontent.com/BLAST-WarpX/warpx-geometry/main/docs/images/einzel_lens_faraday_cup_rz.png)
 
 "warpX" built from boxes, rotated boxes and hollow cylinders, one named
 conductor per letter
-([`examples/warpx_letters.py`](examples/warpx_letters.py)):
+([`examples/warpx_letters.py`](https://github.com/BLAST-WarpX/warpx-geometry/blob/main/examples/warpx_letters.py)):
 
-![warpX spelled in 3D](docs/images/warpx_letters.png)
+![warpX spelled in 3D](https://raw.githubusercontent.com/BLAST-WarpX/warpx-geometry/main/docs/images/warpx_letters.png)
 
 Every picture shows exactly the expression that is handed to WarpX.
 
@@ -511,15 +511,24 @@ uv run ruff check --fix .
 
 # Build distributions (wheel and source)
 uv build
-
-# Update version (e.g., for a new release)
-uv version 0.2.0
-# Or bump semantically:
-uv version --bump minor
-uv version --bump patch
 ```
 
-The package is configured to use uv's native build backend for fast, zero-configuration builds.
+The package is built with hatchling and takes its version from the git tag via hatch-vcs.
+
+### Releasing
+
+Move the `Unreleased` entries in [CHANGELOG.md](https://github.com/BLAST-WarpX/warpx-geometry/blob/main/CHANGELOG.md)
+to a new version section, merge that to `main`, then tag the merged commit.
+Versions follow [Semantic Versioning](https://semver.org/):
+
+```bash
+git tag -a v0.3.0 -m "Release 0.3.0"
+git push origin v0.3.0
+```
+
+Pushing the tag publishes the package to PyPI through
+[`publish.yml`](https://github.com/BLAST-WarpX/warpx-geometry/blob/main/.github/workflows/publish.yml).
+The version on PyPI is the tag without the leading `v`.
 
 ## Development
 
@@ -572,8 +581,8 @@ If you have questions about your rights to use or distribute this software,
 please contact Berkeley Lab's Innovation & Partnerships Office at
 IPO@lbl.gov.
 
-Please see the full license agreement in [LICENSE.txt](LICENSE.txt).
-Please see the notices in [NOTICE.txt](NOTICE.txt).
+Please see the full license agreement in [LICENSE.txt](https://github.com/BLAST-WarpX/warpx-geometry/blob/main/LICENSE.txt).
+Please see the notices in [NOTICE.txt](https://github.com/BLAST-WarpX/warpx-geometry/blob/main/NOTICE.txt).
 The SPDX license identifier is `BSD-3-Clause-LBNL`.
 
 ## Citation
