@@ -114,7 +114,7 @@ def plot_rz_bboxes(ax, components_dict, margin=0, unit_scale=1000, bbox_kwargs=N
     ... }
     >>> # Non-expanded bboxes
     >>> plot_rz_bboxes(ax, components, margin=0)
-    >>> # Bboxes expanded by 2mm (to visualise potential regions)
+    >>> # Bboxes expanded by 2mm
     >>> plot_rz_bboxes(
     ...     ax, components, margin=0.002, bbox_kwargs={"linestyle": ":", "linewidth": 2}
     ... )

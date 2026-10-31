@@ -410,6 +410,13 @@ def _lincomb(a, u: str, b, v: str) -> str:
     return f"({terms or '0'})"
 
 
+def _rotated_range(a, ulo, uhi, b, vlo, vhi) -> tuple:
+    """Return the (min, max) of a*u + b*v for u and v in the given ranges."""
+    us = (0.0, 0.0) if a == 0 else (a * ulo, a * uhi)  # also avoids 0 * inf
+    vs = (0.0, 0.0) if b == 0 else (b * vlo, b * vhi)
+    return min(us) + min(vs), max(us) + max(vs)
+
+
 def _check_order(lo_name, lo, hi_name, hi):
     if not lo < hi:
         raise ValueError(f"{lo_name} must be less than {hi_name}, got {lo} and {hi}")
@@ -710,25 +717,21 @@ class Rotate(BaseObject):
     @property
     def bbox(self):
         b = self.obj.bbox
-        c, s = np.cos(self.angle), np.sin(self.angle)
+        # same rounding as build_expr, so that right angles stay exact
+        c = round(float(np.cos(self.angle)), 12)
+        s = round(float(np.sin(self.angle)), 12)
         if self.axis == "z":
-            xs = [b.xmin, b.xmin, b.xmax, b.xmax]
-            ys = [b.ymin, b.ymax, b.ymin, b.ymax]
-            cx = [c * xi - s * yi for xi, yi in zip(xs, ys, strict=False)]
-            cy = [s * xi + c * yi for xi, yi in zip(xs, ys, strict=False)]
-            return BBox(min(cx), max(cx), min(cy), max(cy), b.zmin, b.zmax)
+            x = _rotated_range(c, b.xmin, b.xmax, -s, b.ymin, b.ymax)
+            y = _rotated_range(s, b.xmin, b.xmax, c, b.ymin, b.ymax)
+            return BBox(*x, *y, b.zmin, b.zmax)
         elif self.axis == "y":
-            xs = [b.xmin, b.xmin, b.xmax, b.xmax]
-            zs = [b.zmin, b.zmax, b.zmin, b.zmax]
-            cx = [c * xi - s * zi for xi, zi in zip(xs, zs, strict=False)]
-            cz = [s * xi + c * zi for xi, zi in zip(xs, zs, strict=False)]
-            return BBox(min(cx), max(cx), b.ymin, b.ymax, min(cz), max(cz))
+            x = _rotated_range(c, b.xmin, b.xmax, -s, b.zmin, b.zmax)
+            z = _rotated_range(s, b.xmin, b.xmax, c, b.zmin, b.zmax)
+            return BBox(*x, b.ymin, b.ymax, *z)
         else:  # axis == "x"
-            ys = [b.ymin, b.ymin, b.ymax, b.ymax]
-            zs = [b.zmin, b.zmax, b.zmin, b.zmax]
-            cy = [c * yi - s * zi for yi, zi in zip(ys, zs, strict=False)]
-            cz = [s * yi + c * zi for yi, zi in zip(ys, zs, strict=False)]
-            return BBox(b.xmin, b.xmax, min(cy), max(cy), min(cz), max(cz))
+            y = _rotated_range(c, b.ymin, b.ymax, -s, b.zmin, b.zmax)
+            z = _rotated_range(s, b.ymin, b.ymax, c, b.zmin, b.zmax)
+            return BBox(b.xmin, b.xmax, *y, *z)
 
     @property
     def rz_bbox(self) -> RZBBox:
