@@ -408,6 +408,16 @@ def _lincomb(a, u: str, b, v: str) -> str:
     return f"({terms or '0'})"
 
 
+def _check_order(lo_name, lo, hi_name, hi):
+    if not lo < hi:
+        raise ValueError(f"{lo_name} must be less than {hi_name}, got {lo} and {hi}")
+
+
+def _check_positive(name, value):
+    if not value > 0:
+        raise ValueError(f"{name} must be positive, got {value}")
+
+
 def _default_margin(objs, rz: bool) -> float:
     """Return a margin that covers WarpX's approximation of the surface.
 
@@ -558,6 +568,9 @@ class Scale(BaseObject):
 
     def __init__(self, obj, sx=1, sy=1, sz=1):
         super().__init__()
+        _check_positive("sx", sx)
+        _check_positive("sy", sy)
+        _check_positive("sz", sz)
         self.obj = obj
         self.sx = sx
         self.sy = sy
@@ -649,6 +662,8 @@ class Rotate(BaseObject):
 
     def __init__(self, obj, angle, axis="z"):
         super().__init__()
+        if axis not in ("x", "y", "z"):
+            raise ValueError(f"axis must be 'x', 'y', or 'z', got {axis!r}")
         self.obj = obj
         self.angle = angle
         self.axis = axis
@@ -665,8 +680,6 @@ class Rotate(BaseObject):
             x, z = _lincomb(c, x, s, z), _lincomb(-s, x, c, z)
         elif self.axis == "x":
             y, z = _lincomb(c, y, s, z), _lincomb(-s, y, c, z)
-        else:
-            raise ValueError(f"axis must be 'x', 'y', or 'z', got {self.axis!r}")
         return self.obj.build_expr(rz, x, y, z)
 
     def _build_rz_expr(self, c, s, x, y, z) -> str:
@@ -689,10 +702,8 @@ class Rotate(BaseObject):
             return self.obj.eval(c * x + s * y, -s * x + c * y, z)
         elif self.axis == "y":
             return self.obj.eval(c * x + s * z, y, -s * x + c * z)
-        elif self.axis == "x":
+        else:  # axis == "x"
             return self.obj.eval(x, c * y + s * z, -s * y + c * z)
-        else:
-            raise ValueError(f"axis must be 'x', 'y', or 'z', got {self.axis!r}")
 
     @property
     def bbox(self):
@@ -728,6 +739,7 @@ class Rotate(BaseObject):
 class Cylinder(BaseObject):
     def __init__(self, radius, name=None, default_voltage=0):
         super().__init__()
+        _check_positive("radius", radius)
         self.radius = radius
         self.name = name
         self.default_voltage = default_voltage
@@ -764,6 +776,7 @@ class SlabZ(BaseObject):
 
     def __init__(self, zmin, zmax):
         super().__init__()
+        _check_order("zmin", zmin, "zmax", zmax)
         self.zmin = zmin
         self.zmax = zmax
 
@@ -787,6 +800,8 @@ class CylinderZ_hollow(Diff):
     def __init__(
         self, radius_outer, radius_inner, zmin, zmax, name=None, default_voltage=0
     ):
+        _check_positive("radius_inner", radius_inner)
+        _check_order("radius_inner", radius_inner, "radius_outer", radius_outer)
         self._r_inner = radius_inner
         self._r_outer = radius_outer
         self._zmin = zmin
@@ -816,6 +831,9 @@ class Box(BaseObject):
         self, xmin, xmax, ymin, ymax, zmin, zmax, name=None, default_voltage=0
     ):
         super().__init__()
+        _check_order("xmin", xmin, "xmax", xmax)
+        _check_order("ymin", ymin, "ymax", ymax)
+        _check_order("zmin", zmin, "zmax", zmax)
         self.name = name
         self.default_voltage = default_voltage
         self.xmin = xmin
@@ -872,6 +890,9 @@ class Torus(BaseObject):
         self, major_radius, minor_radius, z_center=0, name=None, default_voltage=0
     ):
         super().__init__()
+        _check_positive("minor_radius", minor_radius)
+        if major_radius < 0:
+            raise ValueError(f"major_radius must not be negative, got {major_radius}")
         self.name = name
         self.default_voltage = default_voltage
         self.R = major_radius
@@ -918,6 +939,9 @@ class Cone(BaseObject):
 
     def __init__(self, z1, z2, r1, r2, name=None, default_voltage=0):
         super().__init__()
+        _check_order("z1", z1, "z2", z2)
+        if r1 < 0 or r2 < 0 or r1 + r2 == 0:
+            raise ValueError(f"radii must not be negative or both 0, got {r1}, {r2}")
         self.name = name
         self.default_voltage = default_voltage
         self.z1 = z1
@@ -981,6 +1005,14 @@ class RoundedCylinderZ(Union):
         name=None,
         default_voltage=0,
     ):
+        _check_positive("fillet_radius", fillet_radius)
+        _check_order("fillet_radius", fillet_radius, "radius", radius)
+        height = (fillet_top + fillet_bottom) * fillet_radius
+        if height > zmax - zmin:
+            raise ValueError(
+                f"fillets of {fillet_radius} do not fit between {zmin} and {zmax}"
+            )
+
         # Main cylinder body (reduced height to accommodate fillets)
         z_body_min = zmin + (fillet_radius if fillet_bottom else 0)
         z_body_max = zmax - (fillet_radius if fillet_top else 0)
@@ -1049,6 +1081,8 @@ class RoundedCylinderZ_hollow(Diff):
         name=None,
         default_voltage=0,
     ):
+        _check_positive("radius_inner", radius_inner)
+        _check_order("radius_inner", radius_inner, "radius_outer", radius_outer)
         self._r_inner = radius_inner
         # Outer rounded cylinder
         outer = RoundedCylinderZ(
