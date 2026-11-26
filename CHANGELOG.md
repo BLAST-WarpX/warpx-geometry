@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `PolygonRZ`: a body of revolution about the z-axis with a polygonal (z, r) cross-section,
+  for electrodes taken from engineering drawings (stepped bores, chamfers, cones, cavities).
+  The outline is triangulated into a shallow expression; edges on the axis are not surfaces.
 - The release workflow creates a GitHub release with the changelog entry and the built
   files, and stops before publishing if the changelog has no entry for the version.
 

@@ -34,6 +34,10 @@
 ```
 
 ```{eval-rst}
+.. autoclass:: warpx_geometry.PolygonRZ
+```
+
+```{eval-rst}
 .. autoclass:: warpx_geometry.RoundedCylinderZ
 ```
 

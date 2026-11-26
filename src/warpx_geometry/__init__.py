@@ -23,6 +23,7 @@ from .geometry import (
     Diff,
     Geometry,
     Intersection,
+    PolygonRZ,
     Rotate,
     RoundedCylinderZ,
     RoundedCylinderZ_hollow,
@@ -68,6 +69,7 @@ __all__ = [
     "Box",
     "Torus",
     "Cone",
+    "PolygonRZ",
     # Advanced shapes
     "RoundedCylinderZ",
     "RoundedCylinderZ_hollow",

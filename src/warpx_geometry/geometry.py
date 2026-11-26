@@ -982,6 +982,166 @@ class Cone(BaseObject):
         return RZBBox(0, max(self.r1, self.r2), self.z1, self.z2)
 
 
+def _cross(o, a, b) -> float:
+    return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+
+def _segments_cross(p1, p2, q1, q2) -> bool:
+    """True if the segments p1-p2 and q1-q2 cross at an interior point."""
+    d1, d2 = _cross(q1, q2, p1), _cross(q1, q2, p2)
+    d3, d4 = _cross(p1, p2, q1), _cross(p1, p2, q2)
+    return d1 * d2 < 0 and d3 * d4 < 0
+
+
+def _triangulate(pts) -> list:
+    """Ear-clipping triangulation of a simple polygon into counter-clockwise triangles.
+
+    pts are (u, v) vertices in either orientation; repeated and collinear vertices are
+    dropped first.
+    """
+    pts = [tuple(map(float, p)) for p in pts]
+    area = 0.5 * sum(
+        a[0] * b[1] - b[0] * a[1] for a, b in zip(pts, pts[1:] + pts[:1], strict=True)
+    )
+    if area < 0:
+        pts = pts[::-1]
+    tol = 1e-14 * max(1.0, abs(area))
+    changed = True
+    while changed and len(pts) > 3:
+        changed = False
+        for i in range(len(pts)):
+            a, b, c = pts[i - 1], pts[i], pts[(i + 1) % len(pts)]
+            if b == a or abs(_cross(a, b, c)) <= tol:
+                del pts[i]
+                changed = True
+                break
+    tris = []
+    while len(pts) > 3:
+        n = len(pts)
+        for i in range(n):
+            a, b, c = pts[i - 1], pts[i], pts[(i + 1) % n]
+            if _cross(a, b, c) <= 0:
+                continue  # reflex vertex
+            if any(
+                _cross(a, b, q) >= 0 and _cross(b, c, q) >= 0 and _cross(c, a, q) >= 0
+                for q in pts
+                if q not in (a, b, c)
+            ):
+                continue  # another vertex inside the ear
+            tris.append((a, b, c))
+            del pts[i]
+            break
+        else:  # pragma: no cover - only for invalid (self-intersecting) input
+            raise ValueError("polygon cannot be triangulated; is it self-intersecting?")
+    tris.append(tuple(pts))
+    return tris
+
+
+class PolygonRZ(BaseObject):
+    """Body of revolution about the z-axis with a polygonal (z, r) cross-section.
+
+    Electrodes from engineering drawings (stepped bores, chamfered apertures,
+    conical noses, cavities) are given by the vertices of their half
+    cross-section in the (z, r) plane, in either orientation. The polygon must
+    be simple (its edges do not cross) and lie in r >= 0; it may have edges on
+    the axis (a solid body), which are not surfaces.
+
+    The outline is triangulated. The expression is the maximum, over the
+    triangles, of the smallest distance to their three edge lines: positive
+    inside, negative outside and zero on the outline (an approximate signed
+    distance, exact near the edges). Only one level of min/max nests per
+    triangle, so the expression stays shallow, which matters because the
+    WarpX/AMReX parser evaluates with a small fixed stack.
+
+    Parameters:
+        points: sequence of (z, r) vertices
+
+    Example::
+
+        # A plasma electrode: a 3 mm thick disc with a 6.5 mm radius aperture,
+        # a 0.5 mm straight bore and a 45 deg chamfer on the downstream side
+        pe = PolygonRZ(
+            [(0, 6.5e-3), (0.5e-3, 6.5e-3), (3e-3, 9e-3), (3e-3, 20e-3), (0, 20e-3)]
+        )
+    """
+
+    def __init__(self, points, name=None, default_voltage=0):
+        super().__init__()
+        pts = np.asarray(points, dtype=float).reshape(-1, 2)
+        if len(pts) < 3:
+            raise ValueError(f"a polygon needs at least 3 vertices, got {len(pts)}")
+        if np.any(pts[:, 1] < 0):
+            raise ValueError("polygon vertices must have r >= 0")
+        n = len(pts)
+        for i in range(n):
+            for j in range(i + 2, n):
+                if (j + 1) % n == i:
+                    continue
+                if _segments_cross(pts[i], pts[(i + 1) % n], pts[j], pts[(j + 1) % n]):
+                    raise ValueError("polygon edges cross: the outline is not simple")
+        self.points = pts
+        self._triangles = _triangulate(pts)
+        if len(self._triangles) == 0 or all(
+            abs(_cross(*t)) == 0 for t in self._triangles
+        ):
+            raise ValueError("polygon has no area")
+        self.name = name
+        self.default_voltage = default_voltage
+
+    def __repr__(self):
+        pts = ", ".join(f"({_num(zv)}, {_num(rv)})" for zv, rv in self.points)
+        return f"PolygonRZ([{pts}])"
+
+    def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
+        rho = _rho(rz, x, y)
+        tris = []
+        for tri in self._triangles:
+            terms = []
+            for k in range(3):
+                (za, ra), (zb, rb) = tri[k], tri[(k + 1) % 3]
+                if ra == 0 and rb == 0:
+                    # an edge on the axis is not a surface of the body of revolution;
+                    # without it the triangle extends to r < 0, which rho never reaches
+                    continue
+                dz, dr = zb - za, rb - ra
+                length = float(np.hypot(dz, dr))
+                # inside of a counter-clockwise triangle in (z, r): left of each edge
+                terms.append(
+                    _lincomb(-dr / length, _shift(z, za), dz / length, _shift(rho, ra))
+                )
+            tris.append(_min(*terms))
+        return _nest("max", tris)
+
+    def eval(self, x, y, z):
+        rho = np.sqrt(np.asarray(x, dtype=float) ** 2 + np.asarray(y, dtype=float) ** 2)
+        z = np.asarray(z, dtype=float)
+        inside = np.zeros(np.broadcast(rho, z).shape, dtype=bool)
+        pts = self.points
+        for (za, ra), (zb, rb) in zip(pts, np.roll(pts, -1, axis=0), strict=True):
+            if ra == rb:
+                continue  # parallel to the z-axis: never crossed by r = const
+            cross = ((ra > rho) != (rb > rho)) & (
+                z < za + (rho - ra) * (zb - za) / (rb - ra)
+            )
+            inside ^= cross
+        return inside.astype(float)
+
+    @property
+    def bbox(self):
+        rmax = float(self.points[:, 1].max())
+        zmin, zmax = float(self.points[:, 0].min()), float(self.points[:, 0].max())
+        return BBox(-rmax, rmax, -rmax, rmax, zmin, zmax)
+
+    @property
+    def rz_bbox(self) -> RZBBox:
+        return RZBBox(
+            float(self.points[:, 1].min()),
+            float(self.points[:, 1].max()),
+            float(self.points[:, 0].min()),
+            float(self.points[:, 0].max()),
+        )
+
+
 class RoundedCylinderZ(Union):
     """Cylinder with filleted (rounded) edges at top and/or bottom.
 
