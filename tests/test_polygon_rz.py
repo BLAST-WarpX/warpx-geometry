@@ -3,7 +3,8 @@
 import numpy as np
 import pytest
 
-from warpx_geometry import CylinderZ, Geometry, PolygonRZ
+from warpx_geometry import CylinderZ, Geometry, PolygonRZ, Scale, Translate
+from warpx_geometry.geometry import evaluate_expr
 
 # An extraction electrode: entrance bore, wider cavity, exit bore, conical nose
 # (non-convex, with a reflex vertex on every step)
@@ -110,7 +111,24 @@ def test_on_axis_and_geometry_voltage():
     )
     assert disc.signed_value(0.0, 0.0, 0.5e-3, rz=True) == pytest.approx(0.5e-3)
     assert disc.signed_value(0.0, 0.0, 2e-3, rz=True) == pytest.approx(-1e-3)
-    assert "100" in Geometry(disc, rz=True).to_potential_expr()
+    potential = Geometry(disc, rz=True).to_potential_expr()
+    r, z = np.array([0.0, 2e-3, 4e-3, 6e-3]), np.array([0.5e-3, 0.5e-3, 3e-3, 0.5e-3])
+    assert np.array_equal(evaluate_expr(potential, r, 0 * r, z), [100, 100, 0, 0])
+
+
+@pytest.mark.parametrize("rz", [True, False])
+def test_transforms(rz):
+    # transformed coordinates are pasted into the distance and the sign terms
+    obj = PolygonRZ(ELECTRODE)
+    for t in (Translate(obj, z=0.05), Scale(obj, sx=2, sy=2, sz=0.5)):
+        z, r = _random_rz(2000, seed=3)
+        z = (z + 0.05) if isinstance(t, Translate) else z * 0.5
+        r = r if isinstance(t, Translate) else 2 * r
+        theta = np.random.default_rng(4).uniform(0, 2 * np.pi, r.size)
+        x, y = (r, 0 * r) if rz else (r * np.cos(theta), r * np.sin(theta))
+        value = t.signed_value(x, y, z, rz=rz)
+        inside = t.eval(x, y, z) > 0.5
+        assert np.array_equal(value > 0, inside) and 0.1 < inside.mean() < 0.9
 
 
 def test_bbox():
@@ -121,23 +139,37 @@ def test_bbox():
 
 
 @pytest.mark.parametrize(
-    "pts",
+    ("pts", "message"),
     [
-        [(0, 0), (1, 1)],  # too few vertices
-        [(0, -1), (1, 1), (1, 2)],  # r < 0
-        [(0, 0), (1, 1), (1, 0), (0, 1)],  # a bow tie
-        [(0, 1), (1, 1), (1, 2), (2, 2), (2, 3), (1, 3), (1, 2), (0, 2)],  # pinched
-        [(0, 1), (2, 1), (2, 3), (1, 1.5), (1, 1)],  # a vertex on another edge
-        [(0, 1), (2, 1), (1, 1), (1, 2)],  # an edge folds back onto its neighbour
-        [(0, 1), (1, 1), (1, float("nan"))],
-        [(0, 1), (1, 1), (1, float("inf")), (0, 2)],
-        [(0, 0), (1, 1), (2, 2)],  # no area
-        [0, 1, 1, 1, 1, 2, 0, 2],  # not (z, r) pairs
-        [(0, 1, 1, 1), (1, 2, 0, 2)],
+        ([(0, 0), (1, 1)], "at least 3 vertices"),
+        ([(0, -1), (1, 1), (1, 2)], "r >= 0"),
+        ([(0, 0), (1, 1), (1, 0), (0, 1)], "touch or cross"),  # a bow tie
+        (  # pinched: a vertex used twice
+            [(0, 1), (1, 1), (1, 2), (2, 2), (2, 3), (1, 3), (1, 2), (0, 2)],
+            "touch or cross",
+        ),
+        ([(0, 1), (2, 1), (2, 3), (1, 1.5), (1, 1)], "touch or cross"),  # on an edge
+        # folds back onto a neighbour (and so touches another edge)
+        ([(0, 1), (2, 1), (1, 1), (1, 2)], "overlap|touch or cross"),
+        ([(0, 0), (1, 1), (2, 2)], "overlap"),  # collinear: no area
+        ([(0, 1), (1, 1), (1, float("nan"))], "finite"),
+        ([(0, 1), (1, 1), (1, float("inf")), (0, 2)], "finite"),
+        ([0, 1, 1, 1, 1, 2, 0, 2], "pairs"),
+        ([(0, 1, 1, 1), (1, 2, 0, 2)], "pairs"),
     ],
 )
-def test_invalid(pts):
-    with pytest.raises(ValueError):
+def test_invalid(pts, message):
+    with pytest.raises(ValueError, match=message):
+        PolygonRZ(pts)
+
+
+def test_large_outline_warns():
+    z = np.linspace(0, 1, 300)
+    pts = [(zz, 1.0 + 0.2 * (k % 2)) for k, zz in enumerate(z)] + [
+        (1.0, 0.0),
+        (0.0, 0.0),
+    ]
+    with pytest.warns(UserWarning, match="stack"):
         PolygonRZ(pts)
 
 
@@ -185,6 +217,8 @@ def test_shallow_expression():
         return PolygonRZ(top + [(1.0, 0.0), (0.0, 0.0)])
 
     for rz in (True, False):
+        with pytest.warns(UserWarning):
+            zigzag(300)  # above 256 edges
         d8, d32, d128 = (depth(zigzag(n).build_expr(rz=rz)) for n in (8, 32, 128))
         assert d32 - d8 <= 2 and d128 - d32 <= 2
         assert d8 <= 13

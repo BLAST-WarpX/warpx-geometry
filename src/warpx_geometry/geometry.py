@@ -29,10 +29,15 @@ The result can be handed to warpX directly. Keeping the function smooth
 quickly. Primitives must be strictly negative everywhere outside; a region
 of exact zeros would be treated as surface.
 
+PolygonRZ is the one primitive with comparisons: it is a distance times a
+sign of +-1 from comparisons, and the sign only flips where the distance is
+zero, so the function is still continuous and zero only on the surface.
+
 eval() still returns 0/1 (inside/outside) for plotting and tests.
 """
 
 import re
+import warnings
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -982,54 +987,48 @@ class Cone(BaseObject):
         return RZBBox(0, max(self.r1, self.r2), self.z1, self.z2)
 
 
-def _cross(o, a, b) -> float:
-    return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
-
-
-def _on_segment(a, b, p) -> bool:
-    """True if p, known to be on the line through a and b, lies on the segment a-b."""
-    return min(a[0], b[0]) <= p[0] <= max(a[0], b[0]) and min(a[1], b[1]) <= p[
-        1
-    ] <= max(a[1], b[1])
-
-
-def _segments_touch(p1, p2, q1, q2) -> bool:
-    """True if the segments p1-p2 and q1-q2 have any point in common."""
-    d1, d2 = _cross(q1, q2, p1), _cross(q1, q2, p2)
-    d3, d4 = _cross(p1, p2, q1), _cross(p1, p2, q2)
-    if d1 * d2 < 0 and d3 * d4 < 0:
-        return True
-    return (
-        (d1 == 0 and _on_segment(q1, q2, p1))
-        or (d2 == 0 and _on_segment(q1, q2, p2))
-        or (d3 == 0 and _on_segment(p1, p2, q1))
-        or (d4 == 0 and _on_segment(p1, p2, q2))
-    )
-
-
 def _check_simple(pts) -> None:
     """Raise ValueError unless the closed outline pts is a simple polygon.
 
     Edges that are not neighbours must not cross or touch (this also rejects a
     vertex used twice or lying on another edge), and neighbouring edges must not
-    fold back onto each other.
+    fold back onto each other.  Each edge is tested against all later edges at
+    once with numpy.
     """
-    n = len(pts)
-    for i in range(n):
-        a, b = pts[i], pts[(i + 1) % n]
-        for j in range(i + 1, n):
-            c, d = pts[j], pts[(j + 1) % n]
-            if j == i + 1 or (i == 0 and j == n - 1):
-                # neighbours share one vertex; they overlap if they leave it in
-                # the same direction
-                shared, u, v = (b, a, d) if j == i + 1 else (a, b, c)
-                du, dv = u - shared, v - shared
-                if du[0] * dv[1] - du[1] * dv[0] == 0 and np.dot(du, dv) > 0:
-                    raise ValueError("polygon edges overlap: the outline is not simple")
-            elif _segments_touch(a, b, c, d):
-                raise ValueError(
-                    "polygon edges touch or cross: the outline is not simple"
-                )
+    a = np.asarray(pts, dtype=float)
+    b = np.roll(a, -1, axis=0)
+    n = len(a)
+
+    def cross(o, p, q):  # cross product (p - o) x (q - o), broadcast over edges
+        return (p[..., 0] - o[..., 0]) * (q[..., 1] - o[..., 1]) - (
+            p[..., 1] - o[..., 1]
+        ) * (q[..., 0] - o[..., 0])
+
+    def within(lo, hi, p):  # p, on the line through lo and hi, is on the segment
+        return np.all((np.minimum(lo, hi) <= p) & (p <= np.maximum(lo, hi)), axis=-1)
+
+    for i in range(n - 1):
+        j = np.arange(i + 1, n)
+        c, d = a[j], b[j]
+        p1, p2 = a[i], b[i]
+        d1, d2 = cross(c, d, p1), cross(c, d, p2)
+        d3, d4 = cross(p1, p2, c), cross(p1, p2, d)
+        touch = ((d1 * d2 < 0) & (d3 * d4 < 0)) | (
+            ((d1 == 0) & within(c, d, p1))
+            | ((d2 == 0) & within(c, d, p2))
+            | ((d3 == 0) & within(p1, p2, c))
+            | ((d4 == 0) & within(p1, p2, d))
+        )
+        neighbour = (j == i + 1) | ((i == 0) & (j == n - 1))
+        if np.any(touch & ~neighbour):
+            raise ValueError("polygon edges touch or cross: the outline is not simple")
+        # neighbours share one vertex; they overlap if they leave it in the same
+        # direction
+        for k in j[neighbour]:
+            shared, u, v = (b[i], a[i], b[k]) if k == i + 1 else (a[i], b[i], a[k])
+            du, dv = u - shared, v - shared
+            if du[0] * dv[1] - du[1] * dv[0] == 0 and np.dot(du, dv) > 0:
+                raise ValueError("polygon edges overlap: the outline is not simple")
 
 
 def _scaled(coef, expr: str) -> str:
@@ -1055,6 +1054,9 @@ def _product(args) -> str:
     return f"({_product(args[:mid])}*{_product(args[mid:])})"
 
 
+_POLYGON_EDGES_WARN = 256  # PolygonRZ warns above this number of edges
+
+
 class PolygonRZ(BaseObject):
     """Body of revolution about the z-axis with a polygonal (z, r) cross-section.
 
@@ -1070,8 +1072,11 @@ class PolygonRZ(BaseObject):
     on the axis left out), positive inside, negative outside and zero on the
     outline. Inside or outside follows from the number of edges crossed by a
     ray in +z, as in eval(). The edges are combined in balanced min and product
-    trees, so the nesting grows with log2 of the number of edges, which matters
-    because the WarpX/AMReX parser evaluates with a small fixed stack.
+    trees, so the nesting grows with log2 of the number of edges. This matters
+    because the WarpX/AMReX parser evaluates with a stack of 16 entries: in 3D
+    the expression needs 6 for 10 edges, 12 for 130, 14 for 514 and 15 for
+    1026 edges, before it is combined with other shapes. Above 256 edges a
+    warning suggests simplifying the outline.
 
     Parameters:
         points: sequence of (z, r) vertices
@@ -1101,14 +1106,15 @@ class PolygonRZ(BaseObject):
             raise ValueError(f"a polygon needs at least 3 vertices, got {len(pts)}")
         if np.any(pts[:, 1] < 0):
             raise ValueError("polygon vertices must have r >= 0")
-        _check_simple(pts)
-        area = 0.5 * np.sum(
-            pts[:, 0] * np.roll(pts[:, 1], -1) - np.roll(pts[:, 0], -1) * pts[:, 1]
-        )
-        if area == 0:
-            raise ValueError("polygon has no area")
-        if all(r == 0 for r in pts[:, 1]):  # pragma: no cover - zero area above
-            raise ValueError("polygon lies on the axis")
+        _check_simple(pts)  # a simple polygon also has a non-zero area
+        if len(pts) > _POLYGON_EDGES_WARN:
+            warnings.warn(
+                f"PolygonRZ with {len(pts)} edges: the WarpX/AMReX parser evaluates "
+                "with a stack of 16 entries, which the expression, combined with "
+                "other shapes, may exceed (it needs 14 for 514 edges in 3D); "
+                "consider simplifying the outline",
+                stacklevel=2,
+            )
         pts.flags.writeable = False
         self.points = pts
         self.name = name

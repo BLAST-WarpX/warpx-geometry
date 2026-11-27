@@ -21,6 +21,7 @@ from warpx_geometry import (
     CylinderZ_hollow,
     Geometry,
     Intersection,
+    PolygonRZ,
     Rotate,
     RoundedCylinderZ_hollow,
     Scale,
@@ -59,6 +60,20 @@ def union_of_boxes():
     return Box(0, 0.01, 0, 0.01, 0, 0.01) + Box(0.02, 0.03, 0, 0.01, 0, 0.01)
 
 
+def polygon_electrode():
+    # a stepped bore with a conical nose, from (z, r) vertices
+    return PolygonRZ(
+        [
+            (0.0, 4e-3),
+            (3e-3, 4e-3),
+            (3e-3, 6e-3),
+            (8e-3, 3e-3),
+            (8e-3, 12e-3),
+            (0.0, 12e-3),
+        ]
+    )
+
+
 CASES = {
     "translate_union": lambda: Translate(union_of_boxes(), x=0.005, y=-0.002, z=0.01),
     "translate_diff": lambda: Translate(
@@ -87,7 +102,14 @@ CASES = {
     "scale_around_rounded": lambda: scale_around(
         RoundedCylinderZ_hollow(0.011, 0.009, 0.0, 0.03, 0.0005), sz=2, cz=0.015
     ),
+    "polygon_translate": lambda: Translate(polygon_electrode(), x=0.002, z=0.01),
+    "polygon_rotate_x": lambda: Rotate(polygon_electrode(), angle=0.4, axis="x"),
+    "polygon_scale": lambda: Scale(polygon_electrode(), sx=2, sy=0.5, sz=1.5),
 }
+
+# PolygonRZ is a distance times a sign of +-1 from comparisons, which flips only
+# where the distance is zero, so its expression is continuous despite them
+WITH_COMPARISONS = {name for name in CASES if name.startswith("polygon")}
 
 
 @pytest.mark.parametrize("name", CASES)
@@ -150,6 +172,8 @@ def test_expression_is_smooth(name):
     """No 0/1 step functions: no if() and no boolean comparisons."""
     expr = str(CASES[name]())
     assert "if(" not in expr
+    if name in WITH_COMPARISONS:
+        return
     assert ">" not in expr
     assert "<" not in expr
 

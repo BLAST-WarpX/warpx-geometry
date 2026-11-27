@@ -30,7 +30,11 @@ raise a `ValueError`.
 `PolygonRZ` takes the outline of an electrode from a drawing: the (z, r) vertices of its
 half cross-section, in either orientation. The outline must be simple and lie in r >= 0.
 Edges on the axis make a solid body and are not surfaces. The expression is the exact
-signed distance to the body.
+signed distance to the body. Its nesting grows with the logarithm of the number of edges,
+but the WarpX parser evaluates with a stack of 16 entries: in 3D an outline needs 6 for
+10 edges and 14 for 514 edges, before it is combined with other shapes. Above 256
+edges `PolygonRZ` warns; simplify such outlines, for example by merging short edges of
+discretized arcs.
 
 ```python
 from warpx_geometry import PolygonRZ
