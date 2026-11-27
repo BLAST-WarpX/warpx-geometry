@@ -23,6 +23,7 @@ from .geometry import (
     Diff,
     Geometry,
     Intersection,
+    PolygonRZ,
     Rotate,
     RoundedCylinderZ,
     RoundedCylinderZ_hollow,
@@ -35,6 +36,7 @@ from .geometry import (
     scale_around,
     scale_to_bbox_center,
 )
+from .parser_stack import parser_stack_size
 from .plot import (
     create_rz_geometry_mask,
     plot_field2D,
@@ -68,11 +70,14 @@ __all__ = [
     "Box",
     "Torus",
     "Cone",
+    "PolygonRZ",
     # Advanced shapes
     "RoundedCylinderZ",
     "RoundedCylinderZ_hollow",
     # Complex geometries
     "Einzellens",
+    # WarpX parser
+    "parser_stack_size",
     # Plotting
     "plot_field2D",
     "plot_particles2D",

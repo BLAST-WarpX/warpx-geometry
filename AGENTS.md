@@ -56,7 +56,9 @@ For composites, set `self.name` and `self.default_voltage` **after**
 ## Common pitfalls
 
 - **Do not multiply indicator terms:** `(x>a)*(x<b)` is 0 across the whole outside
-  region, which breaks the zero crossing. Use `_min(*_between(x, a, b))`.
+  region, which breaks the zero crossing. Use `_min(*_between(x, a, b))`. The one
+  exception is `PolygonRZ`, whose comparisons only build a sign of +-1 that multiplies
+  its distance and flips where that distance is zero (in RZ for x >= 0).
 - **`eval` must match `build_expr`:** they describe the same region.
 - **RZ needs symmetry:** a transform that breaks it must raise a `ValueError`, not give
   a different shape.

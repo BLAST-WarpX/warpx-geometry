@@ -200,7 +200,9 @@ class TestToPotentialExprSingle:
             name="ring_0",
         )
         geo = Geometry(c, rz=True)
-        expr = geo.to_potential_expr({"ring_0": "1600*pulse(t)"})
+        # a user-defined function: the parser stack cannot be checked
+        with pytest.warns(UserWarning, match="could not check"):
+            expr = geo.to_potential_expr({"ring_0": "1600*pulse(t)"})
         assert "1600*pulse(t)" in expr
 
     def test_empty_conductors_returns_zero(self):

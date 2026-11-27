@@ -13,6 +13,7 @@
 | `RoundedCylinderZ(radius, zmin, zmax, fillet_radius)` | Cylinder with rounded edges |
 | `RoundedCylinderZ_hollow(radius_outer, radius_inner, zmin, zmax, fillet_radius)` | Tube with rounded outer edges |
 | `Einzellens(radius, thickness, length, gap)` | Three tubes that form a lens |
+| `PolygonRZ(points)` | Body of revolution about the z axis with a polygonal (z, r) cross-section |
 
 ```python
 from warpx_geometry import Cone, RoundedCylinderZ, Torus
@@ -25,6 +26,34 @@ torus = Torus(major_radius=0.010, minor_radius=0.001, z_center=0.1)
 `RoundedCylinderZ` can leave one end sharp with `fillet_top=False` or
 `fillet_bottom=False`. Invalid parameters, such as negative radii or swapped limits,
 raise a `ValueError`.
+
+`PolygonRZ` takes the outline of an electrode from a drawing: the (z, r) vertices of its
+half cross-section, in either orientation. The outline must be simple and lie in r >= 0.
+Edges on the axis make a solid body and are not surfaces. The expression is the exact
+signed distance to the body. Its nesting grows with the logarithm of the number of edges,
+but the WarpX parser evaluates with a stack of 16 entries: in 3D an outline needs about
+6-8 for 10 edges and 14 for 514 edges. Combining shapes adds about one per level of the
+balanced union, for example 5 for 32 electrodes. `str(geometry)` and
+`geometry.to_potential_expr()` warn if the whole expression needs more than 16, which
+would make WarpX abort at startup; `parser_stack_size(expr)` gives the number, also for
+the expressions of single shapes, which are not checked (`str(shape)`). For an
+AMReX built with a larger stack, set `warpx_geometry.parser_stack.AMREX_PARSER_STACK_SIZE`.
+Long
+outlines also take long to compile when WarpX starts: on one core, about 1 s for 256
+edges, 16 s for 514 and 4 minutes for 1026. Above 256 edges `PolygonRZ` warns; simplify
+long outlines, for example by merging short edges of discretized arcs.
+
+```python
+from warpx_geometry import PolygonRZ
+
+# a plasma electrode: a 3 mm thick disc with a 6.5 mm radius aperture, a 0.5 mm
+# straight bore and a 45 degree chamfer on the downstream side
+plasma_electrode = PolygonRZ(
+    [(0, 6.5e-3), (0.5e-3, 6.5e-3), (3e-3, 9e-3), (3e-3, 20e-3), (0, 20e-3)],
+    name="plasma_electrode",
+    default_voltage=0,
+)
+```
 
 ## Boolean operations
 

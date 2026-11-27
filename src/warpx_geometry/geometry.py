@@ -29,13 +29,25 @@ The result can be handed to warpX directly. Keeping the function smooth
 quickly. Primitives must be strictly negative everywhere outside; a region
 of exact zeros would be treated as surface.
 
+PolygonRZ is the one primitive with comparisons: it is a distance times a
+sign of +-1 from comparisons, and the sign only flips where the distance is
+zero, so the function is still continuous and zero only on the surface (in
+RZ for x >= 0: x < 0 counts as the axis, where a body that touches the axis
+jumps from +|x| to -|x|).
+
 eval() still returns 0/1 (inside/outside) for plotting and tests.
 """
 
+import collections.abc
+import os
 import re
+import sys
+import warnings
 
 import matplotlib.pyplot as plt
 import numpy as np
+
+from . import parser_stack
 
 
 class BBox:
@@ -243,7 +255,12 @@ class BaseObject:
         """
         if margin is None:
             margin = _default_margin([self], rz)
-        return f"if({self._region_expr(rz, margin)}, {voltage}, 0)"
+        region = self._region_expr(rz, margin)
+        _check_parser_stack(
+            "potential expression",
+            [("the region", region), (f"the voltage {str(voltage)!r}", str(voltage))],
+        )
+        return f"if({region}, {voltage}, 0)"
 
     def _region_expr(self, rz: bool, margin: float) -> str:
         """Return the condition for being inside this object or within margin of it."""
@@ -464,6 +481,58 @@ def _flatten(obj, cls) -> list:
         else:
             leaves.append(node)
     return leaves
+
+
+_PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _caller_stacklevel() -> int:
+    """Return the warnings.warn stacklevel of the first caller outside this package.
+
+    Called by the function that warns; also right through str(), subclasses
+    and other entry points.
+    """
+    frame, level = sys._getframe(1), 1
+    while frame.f_back is not None and os.path.abspath(
+        frame.f_code.co_filename
+    ).startswith(_PACKAGE_DIR + os.sep):
+        frame, level = frame.f_back, level + 1
+    return level
+
+
+def _check_parser_stack(what: str, parts) -> None:
+    """Warn if the WarpX/AMReX parser stack is too small for an expression.
+
+    parts are (label, expression) pairs that the parser evaluates one after
+    the other with the same stack, e.g., the conditions and voltages of the
+    if() chain of a potential, so the largest one counts and is named.
+    The warnings point at the user's call. Parts that
+    parser_stack_size cannot analyze (e.g., a voltage with a user-defined
+    function) are reported in a warning of their own.
+    """
+    stacklevel = _caller_stacklevel()
+    sizes = [parser_stack.parser_stack_size(expr) for _, expr in parts]
+    known = [(n, label) for n, (label, _) in zip(sizes, parts, strict=True) if n]
+    need, label = max(known, key=lambda k: k[0], default=(0, ""))
+    limit = parser_stack.AMREX_PARSER_STACK_SIZE
+    if need > limit:
+        where = f" (for {label})" if label else ""
+        warnings.warn(
+            f"the {what} needs {need} entries on the WarpX/AMReX parser stack"
+            f"{where}, but the stack has {limit} (AMREX_PARSER_STACK_SIZE), so "
+            "WarpX will abort at startup; simplify it, e.g., with fewer shapes "
+            "or fewer PolygonRZ edges",
+            stacklevel=stacklevel,
+        )
+    unknown = [label or expr[:80] for n, (label, expr) in zip(sizes, parts, strict=True)
+               if n is None]  # fmt: skip
+    if unknown:
+        warnings.warn(
+            f"could not check the WarpX/AMReX parser stack for {unknown[0]} in the "
+            f"{what}: parser_stack_size does not handle its syntax (user-defined "
+            "functions, a < b < c, several statements)",
+            stacklevel=stacklevel,
+        )
 
 
 def evaluate_expr(expr: str, x, y, z):
@@ -982,6 +1051,248 @@ class Cone(BaseObject):
         return RZBBox(0, max(self.r1, self.r2), self.z1, self.z2)
 
 
+def _check_simple(pts) -> None:
+    """Raise ValueError unless the closed outline pts is a simple polygon.
+
+    Edges that are not neighbours must not cross or touch (this also rejects a
+    vertex used twice or lying on another edge), and neighbouring edges must not
+    fold back onto each other.  "Touch" allows for rounding: distances below
+    1e-12 of the outline size count as zero.  Each edge is tested against all
+    later edges at once with numpy.
+    """
+    a = np.asarray(pts, dtype=float)
+    b = np.roll(a, -1, axis=0)
+    n = len(a)
+    size = float(np.max(a.max(axis=0) - a.min(axis=0)))
+    eps = 1e-12 * size  # a length
+    # A cross product (q - o) x (p - o) is the distance of p from the line
+    # through o and q times |q - o|: compare it with eps times that length.
+
+    def cross(o, p, q):  # cross product (p - o) x (q - o), broadcast over edges
+        return (p[..., 0] - o[..., 0]) * (q[..., 1] - o[..., 1]) - (
+            p[..., 1] - o[..., 1]
+        ) * (q[..., 0] - o[..., 0])
+
+    def within(lo, hi, p):  # p, on the line through lo and hi, is on the segment
+        return np.all(
+            (np.minimum(lo, hi) - eps <= p) & (p <= np.maximum(lo, hi) + eps), axis=-1
+        )
+
+    for i in range(n - 1):
+        j = np.arange(i + 1, n)
+        c, d = a[j], b[j]
+        p1, p2 = a[i], b[i]
+        tol_cd = eps * np.hypot(*(d - c).T)  # for distances from the lines cd
+        tol_12 = eps * float(np.hypot(*(p2 - p1)))  # from the line p1 p2
+        d1, d2 = cross(c, d, p1), cross(c, d, p2)
+        d3, d4 = cross(p1, p2, c), cross(p1, p2, d)
+        crossing = ((d1 > tol_cd) & (d2 < -tol_cd) | (d1 < -tol_cd) & (d2 > tol_cd)) & (
+            (d3 > tol_12) & (d4 < -tol_12) | (d3 < -tol_12) & (d4 > tol_12)
+        )
+        touching = (
+            ((np.abs(d1) <= tol_cd) & within(c, d, p1))
+            | ((np.abs(d2) <= tol_cd) & within(c, d, p2))
+            | ((np.abs(d3) <= tol_12) & within(p1, p2, c))
+            | ((np.abs(d4) <= tol_12) & within(p1, p2, d))
+        )
+        neighbour = (j == i + 1) | ((i == 0) & (j == n - 1))
+        if np.any((crossing | touching) & ~neighbour):
+            raise ValueError("polygon edges touch or cross: the outline is not simple")
+        # neighbours share one vertex; they overlap if they leave it in the same
+        # direction: the end of the shorter one lies on the longer one
+        for k in j[neighbour]:
+            shared, u, v = (b[i], a[i], b[k]) if k == i + 1 else (a[i], b[i], a[k])
+            du, dv = u - shared, v - shared
+            longer = max(float(np.hypot(*du)), float(np.hypot(*dv)))
+            if (
+                abs(du[0] * dv[1] - du[1] * dv[0]) <= eps * longer
+                and np.dot(du, dv) > 0
+            ):
+                raise ValueError("polygon edges overlap: the outline is not simple")
+
+
+def _scaled(coef, expr: str) -> str:
+    """Return the expression for coef*expr (empty for a zero coefficient)."""
+    if coef == 0:
+        return ""
+    return expr if coef == 1 else f"{_num(coef)}*{expr}"
+
+
+def _minus(u: str, coef, t: str) -> str:
+    """Return the expression for u - coef*t."""
+    if coef == 0:
+        return u
+    sign = "-" if coef > 0 else "+"
+    return f"({u}{sign}{_scaled(abs(coef), t)})"
+
+
+def _product(args) -> str:
+    """Return the product of args as a balanced tree, like _nest."""
+    if len(args) == 1:
+        return args[0]
+    mid = len(args) // 2
+    return f"({_product(args[:mid])}*{_product(args[mid:])})"
+
+
+_POLYGON_EDGES_WARN = 256  # PolygonRZ warns above this number of edges
+
+
+class PolygonRZ(BaseObject):
+    """Body of revolution about the z-axis with a polygonal (z, r) cross-section.
+
+    Electrodes from engineering drawings (stepped bores, chamfered apertures,
+    conical noses, cavities) are given by the vertices of their half
+    cross-section in the (z, r) plane, in either orientation. The polygon must
+    be simple (its edges neither cross nor touch) and lie in r >= 0; it may have
+    edges on the axis (a solid body), which are not surfaces. The vertices are
+    rounded to the 12 significant digits that the expression has. Radii within
+    1e-12 of the outline size of zero count as on the axis, and consecutive
+    vertices that close are dropped (rounding noise, e.g. from arcs). In RZ,
+    x < 0 counts as the axis.
+
+    The expression is the signed distance in the (z, r) plane, which is the
+    distance to the body of revolution: the distance to the nearest edge (edges
+    on the axis left out), positive inside, negative outside and zero on the
+    outline. Inside or outside follows from the number of edges crossed by a
+    ray in +z, as in eval(). The edges are combined in balanced min and product
+    trees, so the nesting grows with log2 of the number of edges. This matters
+    because the WarpX/AMReX parser evaluates with a stack of 16 entries: in 3D
+    the expression needs about 6-8 for 10 edges (depending on the shape), 12
+    for 130, 14 for 514 and 15 for 1026 edges. Combining shapes adds about one
+    per level of the balanced union. Geometry.build_eb_expr and
+    to_potential_expr warn when the whole expression needs more than 16 (see
+    parser_stack_size). Long outlines also take long to compile when WarpX
+    starts, once for the EB function and once for the potential: on one core,
+    about 0.1 s for 130 edges, 1 s for 256, 16 s for 514 and 4 min for 1026
+    edges, so PolygonRZ warns above 256 edges.
+
+    Parameters:
+        points: sequence of (z, r) vertices
+
+    Example::
+
+        # A plasma electrode: a 3 mm thick disc with a 6.5 mm radius aperture,
+        # a 0.5 mm straight bore and a 45 deg chamfer on the downstream side
+        pe = PolygonRZ(
+            [(0, 6.5e-3), (0.5e-3, 6.5e-3), (3e-3, 9e-3), (3e-3, 20e-3), (0, 20e-3)]
+        )
+    """
+
+    def __init__(self, points, name=None, default_voltage=0):
+        super().__init__()
+        try:
+            if isinstance(points, collections.abc.Iterator):
+                points = list(points)  # e.g., zip(z, r)
+            # a copy: later changes to points do not leak in
+            pts = np.array(points, dtype=float)
+        except (TypeError, ValueError) as err:
+            raise ValueError("points must be a sequence of (z, r) pairs") from err
+        if pts.ndim != 2 or pts.shape[1] != 2:
+            raise ValueError(
+                f"points must be a sequence of (z, r) pairs, got shape {pts.shape}"
+            )
+        if not np.all(np.isfinite(pts)):
+            raise ValueError("polygon vertices must be finite")
+        if len(pts) < 3:
+            raise ValueError(f"a polygon needs at least 3 vertices, got {len(pts)}")
+        # The expression writes 12 significant digits (_num): work with the
+        # outline as written, so that the inside test, the distance and eval()
+        # agree with the vertices WarpX gets, also for nearly horizontal edges.
+        pts = np.array([[float(_num(v)) for v in p] for p in pts], dtype=float)
+        # rounding noise, e.g. from arcs computed with sin/cos: radii within 1e-12
+        # of the outline size of the axis are on the axis, and vertices that close
+        # to the next one repeat it
+        eps = 1e-12 * float(np.max(pts.max(axis=0) - pts.min(axis=0)))
+        pts[np.abs(pts[:, 1]) <= eps, 1] = 0.0
+        step = np.max(np.abs(pts - np.roll(pts, -1, axis=0)), axis=1)  # to the next
+        keep = step > eps
+        if not np.any(keep):
+            keep[0] = True
+        pts = pts[keep]
+        if len(pts) < 3:
+            raise ValueError(f"a polygon needs at least 3 vertices, got {len(pts)}")
+        if np.any(pts[:, 1] < 0):
+            raise ValueError("polygon vertices must have r >= 0")
+        _check_simple(pts)  # a simple polygon also has a non-zero area
+        if len(pts) > _POLYGON_EDGES_WARN:
+            warnings.warn(
+                f"PolygonRZ with {len(pts)} edges: the WarpX/AMReX parser takes long "
+                "to compile the expression when WarpX starts (on one core, about "
+                "16 s for 514 edges and 4 min for 1026); consider simplifying the "
+                "outline, e.g., by merging short edges of discretized arcs",
+                stacklevel=2,
+            )
+        pts.flags.writeable = False
+        self.points = pts
+        self.name = name
+        self.default_voltage = default_voltage
+
+    def __repr__(self):
+        pts = ", ".join(f"({float(zv)!r}, {float(rv)!r})" for zv, rv in self.points)
+        args = [f"[{pts}]"]
+        if self.name is not None:
+            args.append(f"name={self.name!r}")
+        if self.default_voltage != 0:
+            args.append(f"default_voltage={self.default_voltage!r}")
+        return f"PolygonRZ({', '.join(args)})"
+
+    def _edges(self):
+        pts = self.points
+        return zip(pts, np.roll(pts, -1, axis=0), strict=True)
+
+    def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
+        # the distance uses the radial coordinate as is; the inside test counts
+        # x < 0 in RZ as the axis, so that a ring translated in x is not mirrored
+        rho = _rho(rz, x, y)
+        rho_sign = f"max({x}, 0)" if rz else rho
+        dist2, signs = [], []
+        for (za, ra), (zb, rb) in self._edges():
+            dz, dr = float(zb - za), float(rb - ra)
+            u, v = _shift(z, za), _shift(rho, ra)
+            if not (ra == 0 and rb == 0):
+                # squared distance to the edge (an edge on the axis is no surface):
+                # t is the clamped position of the nearest point along the edge
+                length2 = dz * dz + dr * dr
+                t = f"max(0, min(1, {_lincomb(dz / length2, u, dr / length2, v)}))"
+                dist2.append(f"({_minus(u, dz, t)}**2 + {_minus(v, dr, t)}**2)")
+            if ra != rb:
+                # the ray from (z, rho) in +z crosses this edge (half-open in r)
+                lo, hi = (ra, rb) if ra < rb else (rb, ra)
+                q = _lincomb(1, u, -dz / dr, _shift(rho_sign, ra))  # z - z_edge(rho)
+                r = rho_sign
+                signs.append(f"(1-2*(({r}>={_num(lo)})*({r}<{_num(hi)})*({q}<0)))")
+        # an odd number of crossings is inside: the product of the signs is then -1
+        return f"(-{_product(signs)}*sqrt({_min(*dist2)}))"
+
+    def eval(self, x, y, z):
+        rho = np.sqrt(np.asarray(x, dtype=float) ** 2 + np.asarray(y, dtype=float) ** 2)
+        z = np.asarray(z, dtype=float)
+        inside = np.zeros(np.broadcast(rho, z).shape, dtype=bool)
+        for (za, ra), (zb, rb) in self._edges():
+            if ra == rb:
+                continue  # parallel to the z-axis: never crossed by r = const
+            cross = ((ra > rho) != (rb > rho)) & (
+                z < za + (rho - ra) * (zb - za) / (rb - ra)
+            )
+            inside ^= cross
+        return inside.astype(float)
+
+    @property
+    def bbox(self):
+        rmax = float(self.points[:, 1].max())
+        zmin, zmax = float(self.points[:, 0].min()), float(self.points[:, 0].max())
+        return BBox(-rmax, rmax, -rmax, rmax, zmin, zmax)
+
+    @property
+    def rz_bbox(self) -> RZBBox:
+        return RZBBox(
+            float(self.points[:, 1].min()),
+            float(self.points[:, 1].max()),
+            float(self.points[:, 0].min()),
+            float(self.points[:, 0].max()),
+        )
+
+
 class RoundedCylinderZ(Union):
     """Cylinder with filleted (rounded) edges at top and/or bottom.
 
@@ -1120,8 +1431,15 @@ class Geometry:
         self.object.collect_named(self.conductors)
 
     def build_eb_expr(self) -> str:
-        """Return the WarpX embedded-boundary expression string."""
-        return self.object.build_expr(rz=self.rz)
+        """Return the WarpX embedded-boundary expression string.
+
+        Warns if the expression needs more than the 16 entries of the WarpX/AMReX
+        parser stack (see parser_stack_size). The check takes about 0.8 s per MB
+        of expression; str(geometry) does the same.
+        """
+        expr = self.object.build_expr(rz=self.rz)
+        _check_parser_stack("embedded-boundary expression", [("", expr)])
+        return expr
 
     def __str__(self):
         return self.build_eb_expr()
@@ -1156,6 +1474,9 @@ class Geometry:
 
         Returns:
             Combined potential expression string, or "0" if all voltages are zero.
+
+        Warns if the expression needs more than the 16 entries of the WarpX/AMReX
+        parser stack (see parser_stack_size).
         """
         if volt_dict is None:
             volt_dict = {}
@@ -1168,7 +1489,7 @@ class Geometry:
         if margin is None:
             margin = _default_margin(self.conductors.values(), self.rz)
 
-        parts = []
+        parts, names = [], []
         for name, obj in self.conductors.items():
             voltage = volt_dict.get(name, obj.default_voltage)
             # Skip purely numeric zeros
@@ -1178,10 +1499,17 @@ class Geometry:
             except (TypeError, ValueError):
                 pass  # string voltages are never skipped
             parts.append((obj._region_expr(self.rz, margin), voltage))
+            names.append(name)
 
         if not parts:
             return "0"
 
+        # the if() chain evaluates one condition or voltage at a time
+        checks = []
+        for name, (region, v) in zip(names, parts, strict=True):
+            checks.append((f"the region of conductor {name!r}", region))
+            checks.append((f"the voltage {str(v)!r} of conductor {name!r}", str(v)))
+        _check_parser_stack("potential expression", checks)
         result = "0"
         for region, voltage in reversed(parts):
             result = f"if({region}, {voltage}, {result})"

@@ -9,6 +9,7 @@ from warpx_geometry import (
     CylinderZ,
     CylinderZ_hollow,
     Geometry,
+    PolygonRZ,
     Rotate,
     Scale,
     Torus,
@@ -39,6 +40,7 @@ def test_translate_x_of_shape_on_the_axis_raises():
         CylinderZ_hollow(0.02, 0.01, 0, 0.05),
         Box(0.01, 0.02, -1, 1, 0, 0.05),
         Torus(0.03, 0.01),
+        PolygonRZ([(0, 0.01), (0.05, 0.01), (0.05, 0.02), (0, 0.02)]),
     ],
 )
 def test_translate_x_of_ring_moves_it_radially(ring):
@@ -47,6 +49,9 @@ def test_translate_x_of_ring_moves_it_radially(ring):
     z = np.asarray((ring.rz_bbox.zmin + ring.rz_bbox.zmax) / 2)
     assert t.signed_value(r, np.asarray(0.0), z, rz=True) > 0
     assert t.signed_value(r - 0.05, np.asarray(0.0), z, rz=True) < 0
+    # no mirror image at r < 0.05 either
+    rmid = (ring.rz_bbox.rmin + ring.rz_bbox.rmax) / 2
+    assert t.signed_value(np.asarray(0.05 - rmid), np.asarray(0.0), z, rz=True) < 0
 
 
 def test_translate_x_of_ring_cannot_cross_the_axis():

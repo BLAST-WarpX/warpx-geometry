@@ -34,6 +34,10 @@
 ```
 
 ```{eval-rst}
+.. autoclass:: warpx_geometry.PolygonRZ
+```
+
+```{eval-rst}
 .. autoclass:: warpx_geometry.RoundedCylinderZ
 ```
 
@@ -102,6 +106,12 @@
 
 ```{eval-rst}
 .. autofunction:: warpx_geometry.bboxes_overlap
+```
+
+## WarpX parser
+
+```{eval-rst}
+.. autofunction:: warpx_geometry.parser_stack_size
 ```
 
 ## Plotting
