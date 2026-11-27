@@ -477,13 +477,14 @@ def _flatten(obj, cls) -> list:
     return leaves
 
 
-def _check_parser_stack(what: str, exprs) -> None:
+def _check_parser_stack(what: str, exprs, stacklevel: int = 3) -> None:
     """Warn if the WarpX/AMReX parser stack is too small for exprs.
 
     exprs are evaluated one after the other with the same stack, e.g., the
     conditions and voltages of the if() chain of a potential, so the largest
-    one counts. Expressions that parser_stack_size cannot analyze (e.g., a
-    voltage string with ^) are left out.
+    one counts. stacklevel points the warning at the user's call. Parts that
+    parser_stack_size cannot analyze (e.g., a voltage with a user-defined
+    function) are reported in a warning of their own.
     """
     sizes = [parser_stack.parser_stack_size(e) for e in exprs]
     need = max((n for n in sizes if n is not None), default=0)
@@ -494,7 +495,15 @@ def _check_parser_stack(what: str, exprs) -> None:
             f"but the stack has {limit} (AMREX_PARSER_STACK_SIZE), so WarpX will "
             "abort at startup; use fewer or simpler shapes, e.g., fewer PolygonRZ "
             "edges",
-            stacklevel=3,
+            stacklevel=stacklevel,
+        )
+    unknown = [e for e, n in zip(exprs, sizes, strict=True) if n is None]
+    if unknown:
+        warnings.warn(
+            f"could not check the WarpX/AMReX parser stack for part of the {what}, "
+            f"e.g., {unknown[0][:80]!r}: parser_stack_size does not handle its "
+            "syntax (user-defined functions, a < b < c, several statements)",
+            stacklevel=stacklevel,
         )
 
 
@@ -1394,12 +1403,15 @@ class Geometry:
         Warns if the expression needs more than the 16 entries of the WarpX/AMReX
         parser stack (see parser_stack_size).
         """
+        return self._eb_expr(stacklevel=4)
+
+    def _eb_expr(self, stacklevel: int) -> str:
         expr = self.object.build_expr(rz=self.rz)
-        _check_parser_stack("embedded-boundary expression", [expr])
+        _check_parser_stack("embedded-boundary expression", [expr], stacklevel)
         return expr
 
     def __str__(self):
-        return self.build_eb_expr()
+        return self._eb_expr(stacklevel=4)
 
     def __repr__(self):
         return f"Geometry({self.object!r}, rz={self.rz})"

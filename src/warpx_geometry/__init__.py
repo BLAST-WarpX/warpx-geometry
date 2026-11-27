@@ -36,7 +36,7 @@ from .geometry import (
     scale_around,
     scale_to_bbox_center,
 )
-from .parser_stack import AMREX_PARSER_STACK_SIZE, parser_stack_size
+from .parser_stack import parser_stack_size
 from .plot import (
     create_rz_geometry_mask,
     plot_field2D,
@@ -78,7 +78,6 @@ __all__ = [
     "Einzellens",
     # WarpX parser
     "parser_stack_size",
-    "AMREX_PARSER_STACK_SIZE",
     # Plotting
     "plot_field2D",
     "plot_particles2D",

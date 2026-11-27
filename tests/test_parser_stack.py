@@ -7,7 +7,6 @@ import pytest
 
 import warpx_geometry
 from warpx_geometry import (
-    AMREX_PARSER_STACK_SIZE,
     CylinderZ,
     Geometry,
     PolygonRZ,
@@ -15,6 +14,7 @@ from warpx_geometry import (
     Translate,
     parser_stack_size,
 )
+from warpx_geometry.parser_stack import AMREX_PARSER_STACK_SIZE
 
 
 def chain(k):
@@ -51,6 +51,22 @@ AMREX_STACK = [
     (chain(3), 4),
     (chain(15), 16),
     (chain(16), 17),
+    # the grammar: ^ and ** are right associative and bind before a sign,
+    # comparisons and and/or have their own levels
+    ("2000^2*z", 1),
+    ("-x^2", 1),
+    ("2^-x", 2),
+    ("x**y**z", 2),
+    ("(x < y) < z", 2),
+    ("x < 1 and y > 2 or z == 3", 2),
+    ("pow(x, 3) + atan2(y, x)", 2),
+    ("fmod(z, 2) - fabs(x)", 2),
+    ("1./(x - 2.e-3) + .5", 1),
+    # AMReX rewrites (2*x)/(3*y) as (2/3)*(x/y), which is shallower
+    ("2*x/(3*y) + if(x > 0 and y > 0, sqrt(x*y), -1)", 2),
+    ("sqrt(x)**2 + (x**2)**3 + x**-1 + y**0 + sin(0.5)*z", 2),
+    # deeper than Python's parser allows
+    ("(" * 300 + "x" + ")" * 300, 1),
 ]
 
 
@@ -59,12 +75,19 @@ def test_matches_amrex(expr, stack):
     assert parser_stack_size(expr) == stack
 
 
-def test_unsupported_syntax_gives_none():
-    assert parser_stack_size("x^2") is None  # another precedence in Python
-    assert parser_stack_size("x > 0 and y > 0") is None
-    assert parser_stack_size("myfunc(x)") is None
-    assert parser_stack_size("(" * 300 + "x" + ")" * 300) is None  # too deep for Python
-    assert parser_stack_size("x +") is None
+@pytest.mark.parametrize(
+    "expr",
+    ["myfunc(x)", "x < y < z", "a = 2; a*x", "x +", "x\ny", "sqrt", "x $ y", ""],
+)
+def test_unsupported_syntax_gives_none(expr):
+    assert parser_stack_size(expr) is None
+
+
+def test_numbers_like_amrex():
+    # IEEE results, as in AMReX, instead of Python's exceptions
+    assert parser_stack_size("1/(2-2)*x") == 1
+    assert parser_stack_size("1" + "0" * 400 + "*x") == 1
+    assert parser_stack_size("sqrt(-1) + log(0)*x") == 1
 
 
 def test_limit():
@@ -130,15 +153,39 @@ def test_warnings_use_the_limit(monkeypatch, rz):
 
 
 def test_potential_with_many_conductors():
-    # The if() chain of 250 conductors is too deep for Python's parser, so
-    # each condition and voltage is checked on its own.
+    # Each condition and voltage of the if() chain is checked on its own,
+    # which gives the same as the whole chain.
     parts = [Translate(Torus(2, 0.3), z=i).named(f"t{i}", i + 1) for i in range(250)]
     u = parts[0]
     for q in parts[1:]:
         u = u + q
     geo = Geometry(u, rz=True)
-    pot = geo.to_potential_expr()
-    assert parser_stack_size(pot) is None
     with warnings.catch_warnings():
         warnings.simplefilter("error")
+        pot = geo.to_potential_expr()
+    assert parser_stack_size(pot) == 2  # also as a whole
+
+
+@pytest.mark.parametrize(("rz", "stack"), [(True, 3), (False, 4)])
+def test_deep_difference_chain(rz, stack):
+    # Subtracting one hole at a time nests 300 levels deep, more than Python's
+    # parser allows; AMReX reports these stack sizes.
+    vac = CylinderZ(5, -1, 65)
+    for i in range(300):
+        vac = vac - CylinderZ(0.01, 0.1 * i, 0.1 * i + 0.05)
+    assert parser_stack_size(vac.build_expr(rz)) == stack
+
+
+def test_warnings_point_at_the_caller(monkeypatch):
+    monkeypatch.setattr(warpx_geometry.parser_stack, "AMREX_PARSER_STACK_SIZE", 7)
+    geo = Geometry(CylinderZ(5, -1, 9) - electrodes(4, 8), rz=True)
+    for call in (geo.build_eb_expr, lambda: str(geo), geo.to_potential_expr):
+        with pytest.warns(UserWarning, match="needs") as record:
+            call()
+        assert record[0].filename == __file__
+
+
+def test_unchecked_parts_warn():
+    geo = Geometry(Torus(2, 0.5).named("t", "myfunc(t)"), rz=True)
+    with pytest.warns(UserWarning, match="could not check"):
         geo.to_potential_expr()

@@ -292,7 +292,15 @@ def test_shallow_expression():
 
     with pytest.warns(UserWarning, match="compile"):
         zigzag(300)  # above 256 edges
+    with pytest.warns(UserWarning, match="compile"):
+        long_outline = zigzag(512)
     for rz in (True, False):
         assert parser_stack_size(PolygonRZ(ELECTRODE).build_expr(rz=rz)) == 6
-        stacks = [parser_stack_size(zigzag(n).build_expr(rz=rz)) for n in (8, 128, 512)]
-        assert stacks == [8, 12, 14]
+        stacks = [
+            parser_stack_size(p.build_expr(rz=rz)) for p in (zigzag(8), zigzag(128))
+        ]
+        assert stacks + [parser_stack_size(long_outline.build_expr(rz=rz))] == [
+            8,
+            12,
+            14,
+        ]
