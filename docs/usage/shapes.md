@@ -31,10 +31,11 @@ raise a `ValueError`.
 half cross-section, in either orientation. The outline must be simple and lie in r >= 0.
 Edges on the axis make a solid body and are not surfaces. The expression is the exact
 signed distance to the body. Its nesting grows with the logarithm of the number of edges,
-but the WarpX parser evaluates with a stack of 16 entries: in 3D an outline needs 6 for
-10 edges and 14 for 514 edges, before it is combined with other shapes. Above 256
-edges `PolygonRZ` warns; simplify such outlines, for example by merging short edges of
-discretized arcs.
+but the WarpX parser evaluates with a stack of 16 entries: in 3D an outline needs about
+6-8 for 10 edges and 14 for 514 edges. Combining shapes adds about one per level of the
+balanced union, for example 5 for 32 electrodes. Above 256 edges `PolygonRZ` warns, but
+that warning does not see combined geometries; simplify long outlines, for example by
+merging short edges of discretized arcs.
 
 ```python
 from warpx_geometry import PolygonRZ

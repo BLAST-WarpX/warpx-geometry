@@ -102,6 +102,27 @@ def test_no_zeros_inside_or_outside():
     assert np.all(vacuum[(value > 0) & off] < 0)
 
 
+def test_symmetric_about_the_axis():
+    # in RZ, x < 0 is the mirror image of x > 0 (as in eval)
+    disc = PolygonRZ([(0.0, 0.0), (1e-3, 0.0), (1e-3, 5e-3), (0.0, 5e-3)])
+    x = np.array([1e-4, 2e-3, 6e-3])
+    z = np.full(3, 0.5e-3)
+    v = disc.signed_value(x, 0 * x, z, rz=True)
+    assert np.array_equal(disc.signed_value(-x, 0 * x, z, rz=True), v)
+    assert np.array_equal(v > 0, disc.eval(-x, 0 * x, z) > 0.5)
+
+
+def test_touching_with_rounding():
+    # a vertex on a slanted edge, at a position that is not exact in binary
+    a, b = np.array([3e-3, 4.75e-3]), np.array([8e-3, 6.3e-3])
+    rng = np.random.default_rng(6)
+    for t in rng.uniform(0.2, 0.8, 50):
+        v = a + t * (b - a)
+        pts = [(0, 4.75e-3), tuple(a), tuple(b), (8e-3, 9e-3), tuple(v), (0, 9e-3)]
+        with pytest.raises(ValueError, match="touch or cross"):
+            PolygonRZ(pts)
+
+
 def test_on_axis_and_geometry_voltage():
     # a disc touching the axis, and its potential expression
     disc = PolygonRZ(
@@ -221,4 +242,4 @@ def test_shallow_expression():
             zigzag(300)  # above 256 edges
         d8, d32, d128 = (depth(zigzag(n).build_expr(rz=rz)) for n in (8, 32, 128))
         assert d32 - d8 <= 2 and d128 - d32 <= 2
-        assert d8 <= 13
+        assert d8 <= 14

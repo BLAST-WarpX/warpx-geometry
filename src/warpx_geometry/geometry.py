@@ -992,12 +992,16 @@ def _check_simple(pts) -> None:
 
     Edges that are not neighbours must not cross or touch (this also rejects a
     vertex used twice or lying on another edge), and neighbouring edges must not
-    fold back onto each other.  Each edge is tested against all later edges at
-    once with numpy.
+    fold back onto each other.  "Touch" allows for rounding: distances below
+    1e-12 of the outline size count as zero.  Each edge is tested against all
+    later edges at once with numpy.
     """
     a = np.asarray(pts, dtype=float)
     b = np.roll(a, -1, axis=0)
     n = len(a)
+    size = float(np.max(a.max(axis=0) - a.min(axis=0)))
+    eps = 1e-12 * size  # a length
+    tol = eps * size  # a cross product, i.e. eps times an edge length
 
     def cross(o, p, q):  # cross product (p - o) x (q - o), broadcast over edges
         return (p[..., 0] - o[..., 0]) * (q[..., 1] - o[..., 1]) - (
@@ -1005,7 +1009,9 @@ def _check_simple(pts) -> None:
         ) * (q[..., 0] - o[..., 0])
 
     def within(lo, hi, p):  # p, on the line through lo and hi, is on the segment
-        return np.all((np.minimum(lo, hi) <= p) & (p <= np.maximum(lo, hi)), axis=-1)
+        return np.all(
+            (np.minimum(lo, hi) - eps <= p) & (p <= np.maximum(lo, hi) + eps), axis=-1
+        )
 
     for i in range(n - 1):
         j = np.arange(i + 1, n)
@@ -1013,21 +1019,24 @@ def _check_simple(pts) -> None:
         p1, p2 = a[i], b[i]
         d1, d2 = cross(c, d, p1), cross(c, d, p2)
         d3, d4 = cross(p1, p2, c), cross(p1, p2, d)
-        touch = ((d1 * d2 < 0) & (d3 * d4 < 0)) | (
-            ((d1 == 0) & within(c, d, p1))
-            | ((d2 == 0) & within(c, d, p2))
-            | ((d3 == 0) & within(p1, p2, c))
-            | ((d4 == 0) & within(p1, p2, d))
+        crossing = ((d1 > tol) & (d2 < -tol) | (d1 < -tol) & (d2 > tol)) & (
+            (d3 > tol) & (d4 < -tol) | (d3 < -tol) & (d4 > tol)
+        )
+        touching = (
+            ((np.abs(d1) <= tol) & within(c, d, p1))
+            | ((np.abs(d2) <= tol) & within(c, d, p2))
+            | ((np.abs(d3) <= tol) & within(p1, p2, c))
+            | ((np.abs(d4) <= tol) & within(p1, p2, d))
         )
         neighbour = (j == i + 1) | ((i == 0) & (j == n - 1))
-        if np.any(touch & ~neighbour):
+        if np.any((crossing | touching) & ~neighbour):
             raise ValueError("polygon edges touch or cross: the outline is not simple")
         # neighbours share one vertex; they overlap if they leave it in the same
         # direction
         for k in j[neighbour]:
             shared, u, v = (b[i], a[i], b[k]) if k == i + 1 else (a[i], b[i], a[k])
             du, dv = u - shared, v - shared
-            if du[0] * dv[1] - du[1] * dv[0] == 0 and np.dot(du, dv) > 0:
+            if abs(du[0] * dv[1] - du[1] * dv[0]) <= tol and np.dot(du, dv) > 0:
                 raise ValueError("polygon edges overlap: the outline is not simple")
 
 
@@ -1074,9 +1083,10 @@ class PolygonRZ(BaseObject):
     ray in +z, as in eval(). The edges are combined in balanced min and product
     trees, so the nesting grows with log2 of the number of edges. This matters
     because the WarpX/AMReX parser evaluates with a stack of 16 entries: in 3D
-    the expression needs 6 for 10 edges, 12 for 130, 14 for 514 and 15 for
-    1026 edges, before it is combined with other shapes. Above 256 edges a
-    warning suggests simplifying the outline.
+    the expression needs about 6-8 for 10 edges (depending on the shape), 12
+    for 130, 14 for 514 and 15 for 1026 edges. Combining shapes adds about one
+    per level of the balanced union, which the warning above 256 edges does not
+    see.
 
     Parameters:
         points: sequence of (z, r) vertices
@@ -1134,7 +1144,8 @@ class PolygonRZ(BaseObject):
         return zip(pts, np.roll(pts, -1, axis=0), strict=True)
 
     def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
-        rho = _rho(rz, x, y)
+        # in RZ, |x| keeps the body symmetric about the axis also for x < 0
+        rho = f"max({x}, -({x}))" if rz else _rho(rz, x, y)
         dist2, signs = [], []
         for (za, ra), (zb, rb) in self._edges():
             dz, dr = float(zb - za), float(rb - ra)
