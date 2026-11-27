@@ -51,6 +51,7 @@ potential = geometry.to_potential_expr()
 - `RoundedCylinderZ(radius, zmin, zmax, fillet_radius, fillet_top=True, fillet_bottom=True)`
 - `RoundedCylinderZ_hollow(radius_outer, radius_inner, zmin, zmax, fillet_radius, ...)`
 - `Einzellens(radius, thickness, length, gap, voltages=(v1, v2, v3))`
+- `PolygonRZ(points)`: body of revolution from the (z, r) vertices of a simple outline
 
 Combine with `a + b` (union), `a - b` (difference) and `a * b` (intersection). Transform
 with `Translate(obj, x, y, z)`, `Scale(obj, sx, sy, sz)`, `Rotate(obj, angle, axis)`,

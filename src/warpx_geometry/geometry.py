@@ -986,55 +986,73 @@ def _cross(o, a, b) -> float:
     return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
 
 
-def _segments_cross(p1, p2, q1, q2) -> bool:
-    """True if the segments p1-p2 and q1-q2 cross at an interior point."""
+def _on_segment(a, b, p) -> bool:
+    """True if p, known to be on the line through a and b, lies on the segment a-b."""
+    return min(a[0], b[0]) <= p[0] <= max(a[0], b[0]) and min(a[1], b[1]) <= p[
+        1
+    ] <= max(a[1], b[1])
+
+
+def _segments_touch(p1, p2, q1, q2) -> bool:
+    """True if the segments p1-p2 and q1-q2 have any point in common."""
     d1, d2 = _cross(q1, q2, p1), _cross(q1, q2, p2)
     d3, d4 = _cross(p1, p2, q1), _cross(p1, p2, q2)
-    return d1 * d2 < 0 and d3 * d4 < 0
-
-
-def _triangulate(pts) -> list:
-    """Ear-clipping triangulation of a simple polygon into counter-clockwise triangles.
-
-    pts are (u, v) vertices in either orientation; repeated and collinear vertices are
-    dropped first.
-    """
-    pts = [tuple(map(float, p)) for p in pts]
-    area = 0.5 * sum(
-        a[0] * b[1] - b[0] * a[1] for a, b in zip(pts, pts[1:] + pts[:1], strict=True)
+    if d1 * d2 < 0 and d3 * d4 < 0:
+        return True
+    return (
+        (d1 == 0 and _on_segment(q1, q2, p1))
+        or (d2 == 0 and _on_segment(q1, q2, p2))
+        or (d3 == 0 and _on_segment(p1, p2, q1))
+        or (d4 == 0 and _on_segment(p1, p2, q2))
     )
-    if area < 0:
-        pts = pts[::-1]
-    tol = 1e-14 * max(1.0, abs(area))
-    changed = True
-    while changed and len(pts) > 3:
-        changed = False
-        for i in range(len(pts)):
-            a, b, c = pts[i - 1], pts[i], pts[(i + 1) % len(pts)]
-            if b == a or abs(_cross(a, b, c)) <= tol:
-                del pts[i]
-                changed = True
-                break
-    tris = []
-    while len(pts) > 3:
-        n = len(pts)
-        for i in range(n):
-            a, b, c = pts[i - 1], pts[i], pts[(i + 1) % n]
-            if _cross(a, b, c) <= 0:
-                continue  # reflex vertex
-            if any(
-                _cross(a, b, q) >= 0 and _cross(b, c, q) >= 0 and _cross(c, a, q) >= 0
-                for q in pts
-                if q not in (a, b, c)
-            ):
-                continue  # another vertex inside the ear
-            tris.append((a, b, c))
-            del pts[i]
-            break
-        else:  # pragma: no cover - only for invalid (self-intersecting) input
-            raise ValueError("polygon cannot be triangulated; is it self-intersecting?")
-    tris.append(tuple(pts))
-    return tris
+
+
+def _check_simple(pts) -> None:
+    """Raise ValueError unless the closed outline pts is a simple polygon.
+
+    Edges that are not neighbours must not cross or touch (this also rejects a
+    vertex used twice or lying on another edge), and neighbouring edges must not
+    fold back onto each other.
+    """
+    n = len(pts)
+    for i in range(n):
+        a, b = pts[i], pts[(i + 1) % n]
+        for j in range(i + 1, n):
+            c, d = pts[j], pts[(j + 1) % n]
+            if j == i + 1 or (i == 0 and j == n - 1):
+                # neighbours share one vertex; they overlap if they leave it in
+                # the same direction
+                shared, u, v = (b, a, d) if j == i + 1 else (a, b, c)
+                du, dv = u - shared, v - shared
+                if du[0] * dv[1] - du[1] * dv[0] == 0 and np.dot(du, dv) > 0:
+                    raise ValueError("polygon edges overlap: the outline is not simple")
+            elif _segments_touch(a, b, c, d):
+                raise ValueError(
+                    "polygon edges touch or cross: the outline is not simple"
+                )
+
+
+def _scaled(coef, expr: str) -> str:
+    """Return the expression for coef*expr (empty for a zero coefficient)."""
+    if coef == 0:
+        return ""
+    return expr if coef == 1 else f"{_num(coef)}*{expr}"
+
+
+def _minus(u: str, coef, t: str) -> str:
+    """Return the expression for u - coef*t."""
+    if coef == 0:
+        return u
+    sign = "-" if coef > 0 else "+"
+    return f"({u}{sign}{_scaled(abs(coef), t)})"
+
+
+def _product(args) -> str:
+    """Return the product of args as a balanced tree, like _nest."""
+    if len(args) == 1:
+        return args[0]
+    mid = len(args) // 2
+    return f"({_product(args[:mid])}*{_product(args[mid:])})"
 
 
 class PolygonRZ(BaseObject):
@@ -1043,15 +1061,17 @@ class PolygonRZ(BaseObject):
     Electrodes from engineering drawings (stepped bores, chamfered apertures,
     conical noses, cavities) are given by the vertices of their half
     cross-section in the (z, r) plane, in either orientation. The polygon must
-    be simple (its edges do not cross) and lie in r >= 0; it may have edges on
-    the axis (a solid body), which are not surfaces.
+    be simple (its edges neither cross nor touch) and lie in r >= 0; it may have
+    edges on the axis (a solid body), which are not surfaces. Repeated
+    consecutive vertices are dropped.
 
-    The outline is triangulated. The expression is the maximum, over the
-    triangles, of the smallest distance to their three edge lines: positive
-    inside, negative outside and zero on the outline (an approximate signed
-    distance, exact near the edges). Only one level of min/max nests per
-    triangle, so the expression stays shallow, which matters because the
-    WarpX/AMReX parser evaluates with a small fixed stack.
+    The expression is the signed distance in the (z, r) plane, which is the
+    distance to the body of revolution: the distance to the nearest edge (edges
+    on the axis left out), positive inside, negative outside and zero on the
+    outline. Inside or outside follows from the number of edges crossed by a
+    ray in +z, as in eval(). The edges are combined in balanced min and product
+    trees, so the nesting grows with log2 of the number of edges, which matters
+    because the WarpX/AMReX parser evaluates with a small fixed stack.
 
     Parameters:
         points: sequence of (z, r) vertices
@@ -1067,57 +1087,71 @@ class PolygonRZ(BaseObject):
 
     def __init__(self, points, name=None, default_voltage=0):
         super().__init__()
-        pts = np.asarray(points, dtype=float).reshape(-1, 2)
+        pts = np.array(
+            points, dtype=float
+        )  # a copy: later changes to points do not leak in
+        if pts.ndim != 2 or pts.shape[1] != 2:
+            raise ValueError(
+                f"points must be a sequence of (z, r) pairs, got shape {pts.shape}"
+            )
+        if not np.all(np.isfinite(pts)):
+            raise ValueError("polygon vertices must be finite")
+        pts = pts[np.any(pts != np.roll(pts, -1, axis=0), axis=1)]  # repeated vertices
         if len(pts) < 3:
             raise ValueError(f"a polygon needs at least 3 vertices, got {len(pts)}")
         if np.any(pts[:, 1] < 0):
             raise ValueError("polygon vertices must have r >= 0")
-        n = len(pts)
-        for i in range(n):
-            for j in range(i + 2, n):
-                if (j + 1) % n == i:
-                    continue
-                if _segments_cross(pts[i], pts[(i + 1) % n], pts[j], pts[(j + 1) % n]):
-                    raise ValueError("polygon edges cross: the outline is not simple")
-        self.points = pts
-        self._triangles = _triangulate(pts)
-        if len(self._triangles) == 0 or all(
-            abs(_cross(*t)) == 0 for t in self._triangles
-        ):
+        _check_simple(pts)
+        area = 0.5 * np.sum(
+            pts[:, 0] * np.roll(pts[:, 1], -1) - np.roll(pts[:, 0], -1) * pts[:, 1]
+        )
+        if area == 0:
             raise ValueError("polygon has no area")
+        if all(r == 0 for r in pts[:, 1]):  # pragma: no cover - zero area above
+            raise ValueError("polygon lies on the axis")
+        pts.flags.writeable = False
+        self.points = pts
         self.name = name
         self.default_voltage = default_voltage
 
     def __repr__(self):
-        pts = ", ".join(f"({_num(zv)}, {_num(rv)})" for zv, rv in self.points)
-        return f"PolygonRZ([{pts}])"
+        pts = ", ".join(f"({float(zv)!r}, {float(rv)!r})" for zv, rv in self.points)
+        args = [f"[{pts}]"]
+        if self.name is not None:
+            args.append(f"name={self.name!r}")
+        if self.default_voltage != 0:
+            args.append(f"default_voltage={self.default_voltage!r}")
+        return f"PolygonRZ({', '.join(args)})"
+
+    def _edges(self):
+        pts = self.points
+        return zip(pts, np.roll(pts, -1, axis=0), strict=True)
 
     def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
         rho = _rho(rz, x, y)
-        tris = []
-        for tri in self._triangles:
-            terms = []
-            for k in range(3):
-                (za, ra), (zb, rb) = tri[k], tri[(k + 1) % 3]
-                if ra == 0 and rb == 0:
-                    # an edge on the axis is not a surface of the body of revolution;
-                    # without it the triangle extends to r < 0, which rho never reaches
-                    continue
-                dz, dr = zb - za, rb - ra
-                length = float(np.hypot(dz, dr))
-                # inside of a counter-clockwise triangle in (z, r): left of each edge
-                terms.append(
-                    _lincomb(-dr / length, _shift(z, za), dz / length, _shift(rho, ra))
-                )
-            tris.append(_min(*terms))
-        return _nest("max", tris)
+        dist2, signs = [], []
+        for (za, ra), (zb, rb) in self._edges():
+            dz, dr = float(zb - za), float(rb - ra)
+            u, v = _shift(z, za), _shift(rho, ra)
+            if not (ra == 0 and rb == 0):
+                # squared distance to the edge (an edge on the axis is no surface):
+                # t is the clamped position of the nearest point along the edge
+                length2 = dz * dz + dr * dr
+                t = f"max(0, min(1, {_lincomb(dz / length2, u, dr / length2, v)}))"
+                dist2.append(f"({_minus(u, dz, t)}**2 + {_minus(v, dr, t)}**2)")
+            if ra != rb:
+                # the ray from (z, rho) in +z crosses this edge (half-open in r)
+                lo, hi = (ra, rb) if ra < rb else (rb, ra)
+                q = _lincomb(1, u, -dz / dr, v)  # z - z_edge(rho)
+                signs.append(f"(1-2*(({rho}>={_num(lo)})*({rho}<{_num(hi)})*({q}<0)))")
+        # an odd number of crossings is inside: the product of the signs is then -1
+        return f"(-{_product(signs)}*sqrt({_min(*dist2)}))"
 
     def eval(self, x, y, z):
         rho = np.sqrt(np.asarray(x, dtype=float) ** 2 + np.asarray(y, dtype=float) ** 2)
         z = np.asarray(z, dtype=float)
         inside = np.zeros(np.broadcast(rho, z).shape, dtype=bool)
-        pts = self.points
-        for (za, ra), (zb, rb) in zip(pts, np.roll(pts, -1, axis=0), strict=True):
+        for (za, ra), (zb, rb) in self._edges():
             if ra == rb:
                 continue  # parallel to the z-axis: never crossed by r = const
             cross = ((ra > rho) != (rb > rho)) & (
