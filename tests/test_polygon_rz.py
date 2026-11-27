@@ -102,14 +102,26 @@ def test_no_zeros_inside_or_outside():
     assert np.all(vacuum[(value > 0) & off] < 0)
 
 
-def test_symmetric_about_the_axis():
-    # in RZ, x < 0 is the mirror image of x > 0 (as in eval)
+def test_x_below_zero_is_the_axis():
+    # in RZ, x < 0 reads as the axis: inside a body on the axis, outside a ring
     disc = PolygonRZ([(0.0, 0.0), (1e-3, 0.0), (1e-3, 5e-3), (0.0, 5e-3)])
-    x = np.array([1e-4, 2e-3, 6e-3])
-    z = np.full(3, 0.5e-3)
-    v = disc.signed_value(x, 0 * x, z, rz=True)
-    assert np.array_equal(disc.signed_value(-x, 0 * x, z, rz=True), v)
-    assert np.array_equal(v > 0, disc.eval(-x, 0 * x, z) > 0.5)
+    ring = PolygonRZ([(0, 1e-3), (1e-3, 1e-3), (1e-3, 2e-3), (0, 2e-3)])
+    x, z = -np.array([1e-4, 1.5e-3, 6e-3]), np.full(3, 0.5e-3)
+    for obj, sign in ((disc, 1), (ring, -1)):
+        on_axis = obj.signed_value(0.0, 0.0, 0.5e-3, rz=True)
+        assert np.all(obj.signed_value(x, 0 * x, z, rz=True) == on_axis)
+        assert np.sign(on_axis) == sign
+
+
+def test_rounding_noise_on_the_axis():
+    # an arc from sin/cos: its ends are within rounding of the axis
+    th = np.linspace(0, np.pi, 33)
+    sphere = PolygonRZ(list(zip(5e-3 * np.cos(th), 5e-3 * np.sin(th), strict=True)))
+    assert sphere.signed_value(0.0, 0.0, 0.0, rz=True) == pytest.approx(5e-3, rel=1e-2)
+    assert sphere.signed_value(1e-5, 0.0, 0.0, rz=True) > 4.9e-3
+    # a closing vertex that repeats the first one up to rounding
+    square = [(0, 1e-3), (1e-3, 1e-3), (1e-3, 2e-3), (0, 2e-3)]
+    assert len(PolygonRZ(square + [(1e-19, 1e-3)]).points) == 4
 
 
 def test_touching_with_rounding():

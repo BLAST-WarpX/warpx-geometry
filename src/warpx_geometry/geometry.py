@@ -1073,8 +1073,10 @@ class PolygonRZ(BaseObject):
     conical noses, cavities) are given by the vertices of their half
     cross-section in the (z, r) plane, in either orientation. The polygon must
     be simple (its edges neither cross nor touch) and lie in r >= 0; it may have
-    edges on the axis (a solid body), which are not surfaces. Repeated
-    consecutive vertices are dropped.
+    edges on the axis (a solid body), which are not surfaces. Radii within
+    1e-12 of the outline size of zero count as on the axis, and consecutive
+    vertices that close are dropped (rounding noise, e.g. from arcs). In RZ,
+    x < 0 counts as the axis.
 
     The expression is the signed distance in the (z, r) plane, which is the
     distance to the body of revolution: the distance to the nearest edge (edges
@@ -1111,7 +1113,16 @@ class PolygonRZ(BaseObject):
             )
         if not np.all(np.isfinite(pts)):
             raise ValueError("polygon vertices must be finite")
-        pts = pts[np.any(pts != np.roll(pts, -1, axis=0), axis=1)]  # repeated vertices
+        # rounding noise, e.g. from arcs computed with sin/cos: radii within 1e-12
+        # of the outline size of the axis are on the axis, and vertices that close
+        # to the previous one repeat it
+        eps = 1e-12 * float(np.max(pts.max(axis=0) - pts.min(axis=0)))
+        pts[np.abs(pts[:, 1]) <= eps, 1] = 0.0
+        step = np.max(np.abs(pts - np.roll(pts, -1, axis=0)), axis=1)  # to the next
+        keep = step > eps
+        if not np.any(keep):
+            keep[0] = True
+        pts = pts[keep]
         if len(pts) < 3:
             raise ValueError(f"a polygon needs at least 3 vertices, got {len(pts)}")
         if np.any(pts[:, 1] < 0):
@@ -1144,8 +1155,8 @@ class PolygonRZ(BaseObject):
         return zip(pts, np.roll(pts, -1, axis=0), strict=True)
 
     def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
-        # in RZ, |x| keeps the body symmetric about the axis also for x < 0
-        rho = f"max({x}, -({x}))" if rz else _rho(rz, x, y)
+        # in RZ, x < 0 counts as the axis (a translated ring is not mirrored)
+        rho = f"max({x}, 0)" if rz else _rho(rz, x, y)
         dist2, signs = [], []
         for (za, ra), (zb, rb) in self._edges():
             dz, dr = float(zb - za), float(rb - ra)
