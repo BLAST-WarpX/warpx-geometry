@@ -35,7 +35,8 @@ but the WarpX parser evaluates with a stack of 16 entries: in 3D an outline need
 6-8 for 10 edges and 14 for 514 edges. Combining shapes adds about one per level of the
 balanced union, for example 5 for 32 electrodes. `str(geometry)` and
 `geometry.to_potential_expr()` warn if the whole expression needs more than 16, which
-would make WarpX abort at startup; `parser_stack_size(expr)` gives the number. For an
+would make WarpX abort at startup; `parser_stack_size(expr)` gives the number, also for
+the expressions of single shapes, which are not checked (`str(shape)`). For an
 AMReX built with a larger stack, set `warpx_geometry.parser_stack.AMREX_PARSER_STACK_SIZE`.
 Long
 outlines also take long to compile when WarpX starts: on one core, about 1 s for 256

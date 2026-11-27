@@ -38,7 +38,10 @@ jumps from +|x| to -|x|).
 eval() still returns 0/1 (inside/outside) for plotting and tests.
 """
 
+import collections.abc
+import os
 import re
+import sys
 import warnings
 
 import matplotlib.pyplot as plt
@@ -480,16 +483,34 @@ def _flatten(obj, cls) -> list:
     return leaves
 
 
-def _check_parser_stack(what: str, parts, stacklevel: int = 3) -> None:
+_PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _caller_stacklevel() -> int:
+    """Return the warnings.warn stacklevel of the first caller outside this package.
+
+    Called by the function that warns; also right through str(), subclasses
+    and other entry points.
+    """
+    frame, level = sys._getframe(1), 1
+    while frame.f_back is not None and os.path.abspath(
+        frame.f_code.co_filename
+    ).startswith(_PACKAGE_DIR + os.sep):
+        frame, level = frame.f_back, level + 1
+    return level
+
+
+def _check_parser_stack(what: str, parts) -> None:
     """Warn if the WarpX/AMReX parser stack is too small for an expression.
 
     parts are (label, expression) pairs that the parser evaluates one after
     the other with the same stack, e.g., the conditions and voltages of the
     if() chain of a potential, so the largest one counts and is named.
-    stacklevel points the warning at the user's call. Parts that
+    The warnings point at the user's call. Parts that
     parser_stack_size cannot analyze (e.g., a voltage with a user-defined
     function) are reported in a warning of their own.
     """
+    stacklevel = _caller_stacklevel()
     sizes = [parser_stack.parser_stack_size(expr) for _, expr in parts]
     known = [(n, label) for n, (label, _) in zip(sizes, parts, strict=True) if n]
     need, label = max(known, key=lambda k: k[0], default=(0, ""))
@@ -1160,8 +1181,8 @@ class PolygonRZ(BaseObject):
     def __init__(self, points, name=None, default_voltage=0):
         super().__init__()
         try:
-            if not isinstance(points, np.ndarray):
-                points = list(points)  # also iterators such as zip(z, r)
+            if isinstance(points, collections.abc.Iterator):
+                points = list(points)  # e.g., zip(z, r)
             # a copy: later changes to points do not leak in
             pts = np.array(points, dtype=float)
         except (TypeError, ValueError) as err:
@@ -1416,15 +1437,12 @@ class Geometry:
         parser stack (see parser_stack_size). The check takes about 0.8 s per MB
         of expression; str(geometry) does the same.
         """
-        return self._eb_expr(stacklevel=4)
-
-    def _eb_expr(self, stacklevel: int) -> str:
         expr = self.object.build_expr(rz=self.rz)
-        _check_parser_stack("embedded-boundary expression", [("", expr)], stacklevel)
+        _check_parser_stack("embedded-boundary expression", [("", expr)])
         return expr
 
     def __str__(self):
-        return self._eb_expr(stacklevel=4)
+        return self.build_eb_expr()
 
     def __repr__(self):
         return f"Geometry({self.object!r}, rz={self.rz})"

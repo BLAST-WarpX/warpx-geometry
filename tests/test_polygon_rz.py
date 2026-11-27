@@ -230,6 +230,13 @@ def test_radius_noise_below_the_written_digits():
     assert p.signed_value(1.5e-3, 0.0, 5e-4, rz=True) > 0
 
 
+def test_points_from_a_dataframe():
+    pd = pytest.importorskip("pandas")
+    square = [(0, 1e-3), (1e-3, 1e-3), (1e-3, 2e-3), (0, 2e-3)]
+    df = pd.DataFrame(square, columns=["z", "r"])
+    assert PolygonRZ(df).build_expr(rz=True) == PolygonRZ(square).build_expr(rz=True)
+
+
 def test_points_from_an_iterator():
     z, r = [0, 1e-3, 1e-3, 0], [1e-3, 1e-3, 2e-3, 2e-3]
     assert PolygonRZ(zip(z, r, strict=True)).build_expr(rz=True) == PolygonRZ(

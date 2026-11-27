@@ -20,7 +20,7 @@ versions agree; for other expressions it is an estimate. Nesting is not
 limited.
 """
 
-import functools
+import hashlib
 import math
 import operator
 import re
@@ -29,8 +29,11 @@ import threading
 
 AMREX_PARSER_STACK_SIZE = 16
 
-# sys.setrecursionlimit is process wide
-_RECURSION_LIMIT_LOCK = threading.Lock()
+# guards the cache and sys.setrecursionlimit, which is process wide
+_LOCK = threading.Lock()
+# stack sizes by a digest of the expression, which may have megabytes
+_CACHE: dict[bytes, int | None] = {}
+_CACHE_SIZE = 4096
 
 # enum order of parser_f1_t and parser_f2_t in AMReX_Parser_Y.H, which sets
 # the order of operands of the same kind
@@ -479,28 +482,42 @@ def _stack(root) -> int:
     return need[id(root)]
 
 
-@functools.lru_cache(maxsize=16)  # str(geometry) may be called repeatedly
 def parser_stack_size(expr: str) -> int | None:
     """Return the stack size the WarpX/AMReX parser needs for expr.
 
     Returns None if expr has syntax that this function does not handle, such
     as user-defined functions, a comparison chain (a < b < c), several
     statements or local variables. WarpX aborts at startup if the result
-    exceeds AMREX_PARSER_STACK_SIZE. It takes about 0.8 s per MB of expression.
+    exceeds AMREX_PARSER_STACK_SIZE. It takes about 0.8 s per MB of expression
+    the first time; results are cached.
     """
+    key = hashlib.blake2b(expr.encode(), digest_size=16).digest()
+    with _LOCK:
+        if key in _CACHE:
+            return _CACHE[key]
+        n = _parser_stack_size(expr)
+        _CACHE[key] = n
+        if len(_CACHE) > _CACHE_SIZE:
+            del _CACHE[next(iter(_CACHE))]  # the oldest
+        return n
+
+
+def _parser_stack_size(expr: str) -> int | None:
+    """parser_stack_size without the cache; with _LOCK held."""
     try:
         tokens = _tokens(expr)
         if not tokens:
             return None
-        # Each level of nesting costs a few Python frames in the parser, and
-        # comparing deep trees (==) recurses as well.
-        nesting = tokens.count("(")
-        with _RECURSION_LIMIT_LOCK:
-            limit = sys.getrecursionlimit()
-            sys.setrecursionlimit(max(limit, 4 * nesting + 1000))
-            try:
-                return _stack(_Parser(tokens).parse())
-            finally:
+        # Parentheses, signs and powers cost a few Python frames each in the
+        # parser, and comparing deep trees (==) recurses as well.
+        depth = sum(tokens.count(t) for t in ("(", "-", "+", "**", "^"))
+        limit = sys.getrecursionlimit()
+        raised = max(limit, 4 * depth + 1000)
+        sys.setrecursionlimit(raised)
+        try:
+            return _stack(_Parser(tokens).parse())
+        finally:
+            if sys.getrecursionlimit() == raised:  # unless changed meanwhile
                 sys.setrecursionlimit(limit)
     except (ValueError, ArithmeticError, RecursionError, MemoryError):
         return None

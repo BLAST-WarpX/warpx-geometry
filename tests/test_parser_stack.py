@@ -196,3 +196,17 @@ def test_unchecked_parts_warn():
     geo = Geometry(Torus(2, 0.5).named("t", "myfunc(t)"), rz=True)
     with pytest.warns(UserWarning, match="could not check"):
         geo.to_potential_expr()
+
+
+def test_str_uses_build_eb_expr():
+    class Clipped(Geometry):
+        def build_eb_expr(self):
+            return f"min({super().build_eb_expr()}, 1)"
+
+    geo = Clipped(Torus(2, 0.5), rz=True)
+    assert str(geo) == geo.build_eb_expr() and str(geo).startswith("min(")
+
+
+def test_cached():
+    expr = chain(5)
+    assert parser_stack_size(expr) == parser_stack_size(expr) == 6
