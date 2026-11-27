@@ -103,14 +103,24 @@ def test_no_zeros_inside_or_outside():
 
 
 def test_x_below_zero_is_the_axis():
-    # in RZ, x < 0 reads as the axis: inside a body on the axis, outside a ring
+    # in RZ, x < 0 is inside a body on the axis and outside a ring, and the
+    # value keeps growing with the distance (no plateau)
     disc = PolygonRZ([(0.0, 0.0), (1e-3, 0.0), (1e-3, 5e-3), (0.0, 5e-3)])
     ring = PolygonRZ([(0, 1e-3), (1e-3, 1e-3), (1e-3, 2e-3), (0, 2e-3)])
     x, z = -np.array([1e-4, 1.5e-3, 6e-3]), np.full(3, 0.5e-3)
-    for obj, sign in ((disc, 1), (ring, -1)):
-        on_axis = obj.signed_value(0.0, 0.0, 0.5e-3, rz=True)
-        assert np.all(obj.signed_value(x, 0 * x, z, rz=True) == on_axis)
-        assert np.sign(on_axis) == sign
+    assert np.all(disc.signed_value(x, 0 * x, z, rz=True) > 0)
+    v = ring.signed_value(x, 0 * x, z, rz=True)
+    assert np.all(v < 0) and np.all(np.diff(v) < 0)
+
+
+def test_translated_ring_potential():
+    # a ring drawn next to the axis and moved out: its voltage stays at the ring
+    ring = PolygonRZ([(0, 5e-6), (1e-3, 5e-6), (1e-3, 1e-3), (0, 1e-3)])
+    moved = Translate(ring, x=0.02).named("ring", default_voltage=100)
+    potential = Geometry(moved, rz=True).to_potential_expr()
+    r = np.array([0.0, 0.005, 0.01, 0.019, 0.0205])
+    v = evaluate_expr(potential, r, 0 * r, np.full(r.size, 0.5e-3))
+    assert np.array_equal(v, [0, 0, 0, 0, 100])
 
 
 def test_rounding_noise_on_the_axis():
@@ -189,6 +199,8 @@ def test_bbox():
         ([(0, 1), (1, 1), (1, float("inf")), (0, 2)], "finite"),
         ([0, 1, 1, 1, 1, 2, 0, 2], "pairs"),
         ([(0, 1, 1, 1), (1, 2, 0, 2)], "pairs"),
+        ([(0, 1), (1, 1, 2), (0, 2)], "pairs"),  # ragged
+        (np.empty((0, 2)), "at least 3 vertices"),
     ],
 )
 def test_invalid(pts, message):

@@ -1104,18 +1104,22 @@ class PolygonRZ(BaseObject):
 
     def __init__(self, points, name=None, default_voltage=0):
         super().__init__()
-        pts = np.array(
-            points, dtype=float
-        )  # a copy: later changes to points do not leak in
+        try:
+            # a copy: later changes to points do not leak in
+            pts = np.array(points, dtype=float)
+        except ValueError as err:
+            raise ValueError("points must be a sequence of (z, r) pairs") from err
         if pts.ndim != 2 or pts.shape[1] != 2:
             raise ValueError(
                 f"points must be a sequence of (z, r) pairs, got shape {pts.shape}"
             )
         if not np.all(np.isfinite(pts)):
             raise ValueError("polygon vertices must be finite")
+        if len(pts) < 3:
+            raise ValueError(f"a polygon needs at least 3 vertices, got {len(pts)}")
         # rounding noise, e.g. from arcs computed with sin/cos: radii within 1e-12
         # of the outline size of the axis are on the axis, and vertices that close
-        # to the previous one repeat it
+        # to the next one repeat it
         eps = 1e-12 * float(np.max(pts.max(axis=0) - pts.min(axis=0)))
         pts[np.abs(pts[:, 1]) <= eps, 1] = 0.0
         step = np.max(np.abs(pts - np.roll(pts, -1, axis=0)), axis=1)  # to the next
@@ -1155,8 +1159,10 @@ class PolygonRZ(BaseObject):
         return zip(pts, np.roll(pts, -1, axis=0), strict=True)
 
     def build_expr(self, rz: bool, x="x", y="y", z="z") -> str:
-        # in RZ, x < 0 counts as the axis (a translated ring is not mirrored)
-        rho = f"max({x}, 0)" if rz else _rho(rz, x, y)
+        # the distance uses the radial coordinate as is; the inside test counts
+        # x < 0 in RZ as the axis, so that a ring translated in x is not mirrored
+        rho = _rho(rz, x, y)
+        rho_sign = f"max({x}, 0)" if rz else rho
         dist2, signs = [], []
         for (za, ra), (zb, rb) in self._edges():
             dz, dr = float(zb - za), float(rb - ra)
@@ -1170,8 +1176,9 @@ class PolygonRZ(BaseObject):
             if ra != rb:
                 # the ray from (z, rho) in +z crosses this edge (half-open in r)
                 lo, hi = (ra, rb) if ra < rb else (rb, ra)
-                q = _lincomb(1, u, -dz / dr, v)  # z - z_edge(rho)
-                signs.append(f"(1-2*(({rho}>={_num(lo)})*({rho}<{_num(hi)})*({q}<0)))")
+                q = _lincomb(1, u, -dz / dr, _shift(rho_sign, ra))  # z - z_edge(rho)
+                r = rho_sign
+                signs.append(f"(1-2*(({r}>={_num(lo)})*({r}<{_num(hi)})*({q}<0)))")
         # an odd number of crossings is inside: the product of the signs is then -1
         return f"(-{_product(signs)}*sqrt({_min(*dist2)}))"
 
