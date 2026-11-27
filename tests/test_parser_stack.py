@@ -30,49 +30,56 @@ def chain(k):
     return t
 
 
-# expression and the stack size that AMReX 26.08 and 26.11 report
-# (Parser::maxStackSize); chain(16) makes AMReX abort
+# expression and the stack sizes that AMReX 26.08 and 26.11 report
+# (Parser::maxStackSize); 26.11 fuses functions of two variables or numbers,
+# so it may need one entry less; chain(16) makes AMReX abort
 AMREX_STACK = [
-    ("x", 1),
-    ("x + 1", 1),
-    ("min(x, y)", 1),
-    ("min(x + 1, y + 2)", 2),
+    ("x", 1, 1),
+    ("x + 1", 1, 1),
+    ("min(x, y)", 2, 1),
+    ("min(x + 1, y + 2)", 2, 2),
     # AMReX regroups 0.5 + z - x into 0.5 + (z - x), which is deeper than the
     # second operand, so it is evaluated first
-    ("min((0.5 + 1*z-x), min(z, (1-z)))", 3),
+    ("min((0.5 + 1*z-x), min(z, (1-z)))", 3, 3),
     # divisions by numbers, as from Scale
     (
         "(x / 0.566734349349 + 0.952190383314) ** 2 + (-0.875897703711 * "
         "(y / 1.21550708703) + 0.482496852459 * (z / 1.48258587934)) ** 2",
         3,
+        3,
     ),
-    ("if(x > 0, 1, if(y > 0, 2, 0))", 1),
-    ("if(min(x, y) + max(x, z) > 0, sqrt(x**2 + y**2), 0)", 2),
-    (chain(3), 4),
-    (chain(15), 16),
-    (chain(16), 17),
+    ("if(x > 0, 1, if(y > 0, 2, 0))", 2, 1),
+    ("if(min(x, y) + max(x, z) > 0, sqrt(x**2 + y**2), 0)", 3, 2),
+    (chain(3), 4, 4),
+    (chain(15), 16, 16),
+    (chain(16), 17, 17),
     # the grammar: ^ and ** are right associative and bind before a sign,
     # comparisons and and/or have their own levels
-    ("2000^2*z", 1),
-    ("-x^2", 1),
-    ("2^-x", 2),
-    ("x**y**z", 2),
-    ("(x < y) < z", 2),
-    ("x < 1 and y > 2 or z == 3", 2),
-    ("pow(x, 3) + atan2(y, x)", 2),
-    ("fmod(z, 2) - fabs(x)", 2),
-    ("1./(x - 2.e-3) + .5", 1),
+    ("2000^2*z", 1, 1),
+    ("-x^2", 1, 1),
+    ("2^-x", 2, 2),
+    ("x**y**z", 2, 2),
+    ("x < 1 and y > 2 or z == 3", 3, 2),
+    ("pow(x, 3) + atan2(y, x)", 3, 2),
+    ("fmod(z, 2) - fabs(x)", 3, 2),
+    ("1./(x - 2.e-3) + .5", 1, 1),
     # AMReX rewrites (2*x)/(3*y) as (2/3)*(x/y), which is shallower
-    ("2*x/(3*y) + if(x > 0 and y > 0, sqrt(x*y), -1)", 2),
-    ("sqrt(x)**2 + (x**2)**3 + x**-1 + y**0 + sin(0.5)*z", 2),
+    ("2*x/(3*y) + if(x > 0 and y > 0, sqrt(x*y), -1)", 3, 2),
+    ("sqrt(x)**2 + (x**2)**3 + x**-1 + y**0 + sin(0.5)*z", 2, 2),
     # deeper than Python's parser allows
-    ("(" * 300 + "x" + ")" * 300, 1),
+    ("(" * 300 + "x" + ")" * 300, 1, 1),
 ]
 
 
-@pytest.mark.parametrize(("expr", "stack"), AMREX_STACK)
-def test_matches_amrex(expr, stack):
-    assert parser_stack_size(expr) == stack
+@pytest.mark.parametrize(("expr", "stack_2608", "stack_2611"), AMREX_STACK)
+def test_matches_amrex(expr, stack_2608, stack_2611):
+    # the count of AMReX up to 26.10, an upper bound for 26.11
+    assert parser_stack_size(expr) == stack_2608 >= stack_2611
+
+
+def test_parenthesized_comparison():
+    # not a chain since AMReX 26.10 (26.10 and 26.11 need 2; 26.08 chains it)
+    assert parser_stack_size("(x < y) < z") == 2
 
 
 @pytest.mark.parametrize(
@@ -148,7 +155,7 @@ def test_warnings_use_the_limit(monkeypatch, rz):
         zigzag(8).to_potential_expr(100, rz)
     # the voltages count too
     deep = chain(7)  # 8 entries
-    with pytest.warns(UserWarning, match="potential expression needs 8 entries"):
+    with pytest.warns(UserWarning, match="needs 8 entries.*for the voltage"):
         small.to_potential_expr({"t": deep})
 
 

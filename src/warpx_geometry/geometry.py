@@ -253,7 +253,10 @@ class BaseObject:
         if margin is None:
             margin = _default_margin([self], rz)
         region = self._region_expr(rz, margin)
-        _check_parser_stack("potential expression", [region, str(voltage)])
+        _check_parser_stack(
+            "potential expression",
+            [("the region", region), (f"the voltage {str(voltage)!r}", str(voltage))],
+        )
         return f"if({region}, {voltage}, 0)"
 
     def _region_expr(self, rz: bool, margin: float) -> str:
@@ -477,32 +480,36 @@ def _flatten(obj, cls) -> list:
     return leaves
 
 
-def _check_parser_stack(what: str, exprs, stacklevel: int = 3) -> None:
-    """Warn if the WarpX/AMReX parser stack is too small for exprs.
+def _check_parser_stack(what: str, parts, stacklevel: int = 3) -> None:
+    """Warn if the WarpX/AMReX parser stack is too small for an expression.
 
-    exprs are evaluated one after the other with the same stack, e.g., the
-    conditions and voltages of the if() chain of a potential, so the largest
-    one counts. stacklevel points the warning at the user's call. Parts that
+    parts are (label, expression) pairs that the parser evaluates one after
+    the other with the same stack, e.g., the conditions and voltages of the
+    if() chain of a potential, so the largest one counts and is named.
+    stacklevel points the warning at the user's call. Parts that
     parser_stack_size cannot analyze (e.g., a voltage with a user-defined
     function) are reported in a warning of their own.
     """
-    sizes = [parser_stack.parser_stack_size(e) for e in exprs]
-    need = max((n for n in sizes if n is not None), default=0)
+    sizes = [parser_stack.parser_stack_size(expr) for _, expr in parts]
+    known = [(n, label) for n, (label, _) in zip(sizes, parts, strict=True) if n]
+    need, label = max(known, key=lambda k: k[0], default=(0, ""))
     limit = parser_stack.AMREX_PARSER_STACK_SIZE
     if need > limit:
+        where = f" (for {label})" if label else ""
         warnings.warn(
-            f"the {what} needs {need} entries on the WarpX/AMReX parser stack, "
-            f"but the stack has {limit} (AMREX_PARSER_STACK_SIZE), so WarpX will "
-            "abort at startup; use fewer or simpler shapes, e.g., fewer PolygonRZ "
-            "edges",
+            f"the {what} needs {need} entries on the WarpX/AMReX parser stack"
+            f"{where}, but the stack has {limit} (AMREX_PARSER_STACK_SIZE), so "
+            "WarpX will abort at startup; simplify it, e.g., with fewer shapes "
+            "or fewer PolygonRZ edges",
             stacklevel=stacklevel,
         )
-    unknown = [e for e, n in zip(exprs, sizes, strict=True) if n is None]
+    unknown = [label or expr[:80] for n, (label, expr) in zip(sizes, parts, strict=True)
+               if n is None]  # fmt: skip
     if unknown:
         warnings.warn(
-            f"could not check the WarpX/AMReX parser stack for part of the {what}, "
-            f"e.g., {unknown[0][:80]!r}: parser_stack_size does not handle its "
-            "syntax (user-defined functions, a < b < c, several statements)",
+            f"could not check the WarpX/AMReX parser stack for {unknown[0]} in the "
+            f"{what}: parser_stack_size does not handle its syntax (user-defined "
+            "functions, a < b < c, several statements)",
             stacklevel=stacklevel,
         )
 
@@ -1116,7 +1123,8 @@ class PolygonRZ(BaseObject):
     conical noses, cavities) are given by the vertices of their half
     cross-section in the (z, r) plane, in either orientation. The polygon must
     be simple (its edges neither cross nor touch) and lie in r >= 0; it may have
-    edges on the axis (a solid body), which are not surfaces. Radii within
+    edges on the axis (a solid body), which are not surfaces. The vertices are
+    rounded to the 12 significant digits that the expression has. Radii within
     1e-12 of the outline size of zero count as on the axis, and consecutive
     vertices that close are dropped (rounding noise, e.g. from arcs). In RZ,
     x < 0 counts as the axis.
@@ -1166,6 +1174,10 @@ class PolygonRZ(BaseObject):
             raise ValueError("polygon vertices must be finite")
         if len(pts) < 3:
             raise ValueError(f"a polygon needs at least 3 vertices, got {len(pts)}")
+        # The expression writes 12 significant digits (_num): work with the
+        # outline as written, so that the inside test, the distance and eval()
+        # agree with the vertices WarpX gets, also for nearly horizontal edges.
+        pts = np.array([[float(_num(v)) for v in p] for p in pts], dtype=float)
         # rounding noise, e.g. from arcs computed with sin/cos: radii within 1e-12
         # of the outline size of the axis are on the axis, and vertices that close
         # to the next one repeat it
@@ -1401,13 +1413,14 @@ class Geometry:
         """Return the WarpX embedded-boundary expression string.
 
         Warns if the expression needs more than the 16 entries of the WarpX/AMReX
-        parser stack (see parser_stack_size).
+        parser stack (see parser_stack_size). The check takes about 0.8 s per MB
+        of expression; str(geometry) does the same.
         """
         return self._eb_expr(stacklevel=4)
 
     def _eb_expr(self, stacklevel: int) -> str:
         expr = self.object.build_expr(rz=self.rz)
-        _check_parser_stack("embedded-boundary expression", [expr], stacklevel)
+        _check_parser_stack("embedded-boundary expression", [("", expr)], stacklevel)
         return expr
 
     def __str__(self):
@@ -1458,7 +1471,7 @@ class Geometry:
         if margin is None:
             margin = _default_margin(self.conductors.values(), self.rz)
 
-        parts = []
+        parts, names = [], []
         for name, obj in self.conductors.items():
             voltage = volt_dict.get(name, obj.default_voltage)
             # Skip purely numeric zeros
@@ -1468,14 +1481,17 @@ class Geometry:
             except (TypeError, ValueError):
                 pass  # string voltages are never skipped
             parts.append((obj._region_expr(self.rz, margin), voltage))
+            names.append(name)
 
         if not parts:
             return "0"
 
         # the if() chain evaluates one condition or voltage at a time
-        _check_parser_stack(
-            "potential expression", [e for region, v in parts for e in (region, str(v))]
-        )
+        checks = []
+        for name, (region, v) in zip(names, parts, strict=True):
+            checks.append((f"the region of conductor {name!r}", region))
+            checks.append((f"the voltage {str(v)!r} of conductor {name!r}", str(v)))
+        _check_parser_stack("potential expression", checks)
         result = "0"
         for region, voltage in reversed(parts):
             result = f"if({region}, {voltage}, {result})"

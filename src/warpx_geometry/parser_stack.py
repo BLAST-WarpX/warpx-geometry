@@ -11,10 +11,13 @@ does in Src/Base/Parser: its grammar (amrex_parser.y, amrex_parser.l), the
 optimizer's constant folding and its rules that move numbers in sums and
 products (parser_ast_optimize, parser_ast_sort), and the compiler's fused
 instructions for numbers and variables and its choice to evaluate the deeper
-operand first (parser_compile_exe_size). It reproduces the stack size of
-AMReX 26.08 to 26.11 exactly for the expressions this package generates
-(tested on several hundred geometries); for other expressions it is an
-estimate. Nesting is not limited.
+operand first (parser_compile_exe_size). It counts a function of two
+variables or numbers, such as max(x, 0), as AMReX up to 26.10 does; AMReX
+26.11 needs one entry less there, so the result is an upper bound for it. It
+reproduces the stack size of AMReX 26.08 to 26.11 exactly for the expressions
+this package generates (tested on several thousand geometries), where the two
+versions agree; for other expressions it is an estimate. Nesting is not
+limited.
 """
 
 import functools
@@ -22,8 +25,12 @@ import math
 import operator
 import re
 import sys
+import threading
 
 AMREX_PARSER_STACK_SIZE = 16
+
+# sys.setrecursionlimit is process wide
+_RECURSION_LIMIT_LOCK = threading.Lock()
 
 # enum order of parser_f1_t and parser_f2_t in AMReX_Parser_Y.H, which sets
 # the order of operands of the same kind
@@ -461,9 +468,10 @@ def _stack(root) -> int:
             name, l, r = t[1], t[2], t[3]
             if name == "pow" and _num(r) and (r[1] == 0.5 or float(r[1]).is_integer()):
                 n = 1 if _sym(l) else need[id(l)]
-            elif (_sym(l) and _leaf(r)) or (_num(l) and _sym(r)):
-                n = 1
             else:
+                # AMReX 26.11 fuses a function of two variables or numbers
+                # (one entry); earlier versions push both (two), as counted
+                # here, which bounds both
                 n = both(l, r)
         else:  # if(c, a, b): c is taken off the stack before a or b runs
             n = max(need[id(k)] for k in kids)
@@ -487,11 +495,12 @@ def parser_stack_size(expr: str) -> int | None:
         # Each level of nesting costs a few Python frames in the parser, and
         # comparing deep trees (==) recurses as well.
         nesting = tokens.count("(")
-        limit = sys.getrecursionlimit()
-        sys.setrecursionlimit(max(limit, 4 * nesting + 1000))
-        try:
-            return _stack(_Parser(tokens).parse())
-        finally:
-            sys.setrecursionlimit(limit)
+        with _RECURSION_LIMIT_LOCK:
+            limit = sys.getrecursionlimit()
+            sys.setrecursionlimit(max(limit, 4 * nesting + 1000))
+            try:
+                return _stack(_Parser(tokens).parse())
+            finally:
+                sys.setrecursionlimit(limit)
     except (ValueError, ArithmeticError, RecursionError, MemoryError):
         return None

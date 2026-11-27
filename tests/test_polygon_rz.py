@@ -217,6 +217,19 @@ def test_invalid(pts, message):
         PolygonRZ(pts)
 
 
+def test_radius_noise_below_the_written_digits():
+    # One radius with 3e-12 relative noise, as from a CAD export: the vertices
+    # are used as the expression writes them (12 digits), so the nearly
+    # horizontal edge still meets its neighbours and nothing in front of the
+    # body counts as inside.
+    p = PolygonRZ([(0, 1e-3), (1e-3, 1e-3), (1e-3, 2e-3 + 6e-15), (0, 2e-3)])
+    for z in (-6e-4, -3e-4, -1e-4):
+        assert p.eval(2e-3, 0.0, z) == 0.0
+        assert p.signed_value(2e-3, 0.0, z, rz=True) < 0
+        assert p.signed_value(2e-3, 0.0, z, rz=False) < 0
+    assert p.signed_value(1.5e-3, 0.0, 5e-4, rz=True) > 0
+
+
 def test_points_from_an_iterator():
     z, r = [0, 1e-3, 1e-3, 0], [1e-3, 1e-3, 2e-3, 2e-3]
     assert PolygonRZ(zip(z, r, strict=True)).build_expr(rz=True) == PolygonRZ(
