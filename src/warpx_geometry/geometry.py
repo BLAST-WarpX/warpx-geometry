@@ -31,7 +31,9 @@ of exact zeros would be treated as surface.
 
 PolygonRZ is the one primitive with comparisons: it is a distance times a
 sign of +-1 from comparisons, and the sign only flips where the distance is
-zero, so the function is still continuous and zero only on the surface.
+zero, so the function is still continuous and zero only on the surface (in
+RZ for x >= 0: x < 0 counts as the axis, where a body that touches the axis
+jumps from +|x| to -|x|).
 
 eval() still returns 0/1 (inside/outside) for plotting and tests.
 """
@@ -41,6 +43,8 @@ import warnings
 
 import matplotlib.pyplot as plt
 import numpy as np
+
+from . import parser_stack
 
 
 class BBox:
@@ -248,7 +252,9 @@ class BaseObject:
         """
         if margin is None:
             margin = _default_margin([self], rz)
-        return f"if({self._region_expr(rz, margin)}, {voltage}, 0)"
+        region = self._region_expr(rz, margin)
+        _check_parser_stack("potential expression", [region, str(voltage)])
+        return f"if({region}, {voltage}, 0)"
 
     def _region_expr(self, rz: bool, margin: float) -> str:
         """Return the condition for being inside this object or within margin of it."""
@@ -469,6 +475,27 @@ def _flatten(obj, cls) -> list:
         else:
             leaves.append(node)
     return leaves
+
+
+def _check_parser_stack(what: str, exprs) -> None:
+    """Warn if the WarpX/AMReX parser stack is too small for exprs.
+
+    exprs are evaluated one after the other with the same stack, e.g., the
+    conditions and voltages of the if() chain of a potential, so the largest
+    one counts. Expressions that parser_stack_size cannot analyze (e.g., a
+    voltage string with ^) are left out.
+    """
+    sizes = [parser_stack.parser_stack_size(e) for e in exprs]
+    need = max((n for n in sizes if n is not None), default=0)
+    limit = parser_stack.AMREX_PARSER_STACK_SIZE
+    if need > limit:
+        warnings.warn(
+            f"the {what} needs {need} entries on the WarpX/AMReX parser stack, "
+            f"but the stack has {limit} (AMREX_PARSER_STACK_SIZE), so WarpX will "
+            "abort at startup; use fewer or simpler shapes, e.g., fewer PolygonRZ "
+            "edges",
+            stacklevel=3,
+        )
 
 
 def evaluate_expr(expr: str, x, y, z):
@@ -1001,7 +1028,8 @@ def _check_simple(pts) -> None:
     n = len(a)
     size = float(np.max(a.max(axis=0) - a.min(axis=0)))
     eps = 1e-12 * size  # a length
-    tol = eps * size  # a cross product, i.e. eps times an edge length
+    # A cross product (q - o) x (p - o) is the distance of p from the line
+    # through o and q times |q - o|: compare it with eps times that length.
 
     def cross(o, p, q):  # cross product (p - o) x (q - o), broadcast over edges
         return (p[..., 0] - o[..., 0]) * (q[..., 1] - o[..., 1]) - (
@@ -1017,26 +1045,32 @@ def _check_simple(pts) -> None:
         j = np.arange(i + 1, n)
         c, d = a[j], b[j]
         p1, p2 = a[i], b[i]
+        tol_cd = eps * np.hypot(*(d - c).T)  # for distances from the lines cd
+        tol_12 = eps * float(np.hypot(*(p2 - p1)))  # from the line p1 p2
         d1, d2 = cross(c, d, p1), cross(c, d, p2)
         d3, d4 = cross(p1, p2, c), cross(p1, p2, d)
-        crossing = ((d1 > tol) & (d2 < -tol) | (d1 < -tol) & (d2 > tol)) & (
-            (d3 > tol) & (d4 < -tol) | (d3 < -tol) & (d4 > tol)
+        crossing = ((d1 > tol_cd) & (d2 < -tol_cd) | (d1 < -tol_cd) & (d2 > tol_cd)) & (
+            (d3 > tol_12) & (d4 < -tol_12) | (d3 < -tol_12) & (d4 > tol_12)
         )
         touching = (
-            ((np.abs(d1) <= tol) & within(c, d, p1))
-            | ((np.abs(d2) <= tol) & within(c, d, p2))
-            | ((np.abs(d3) <= tol) & within(p1, p2, c))
-            | ((np.abs(d4) <= tol) & within(p1, p2, d))
+            ((np.abs(d1) <= tol_cd) & within(c, d, p1))
+            | ((np.abs(d2) <= tol_cd) & within(c, d, p2))
+            | ((np.abs(d3) <= tol_12) & within(p1, p2, c))
+            | ((np.abs(d4) <= tol_12) & within(p1, p2, d))
         )
         neighbour = (j == i + 1) | ((i == 0) & (j == n - 1))
         if np.any((crossing | touching) & ~neighbour):
             raise ValueError("polygon edges touch or cross: the outline is not simple")
         # neighbours share one vertex; they overlap if they leave it in the same
-        # direction
+        # direction: the end of the shorter one lies on the longer one
         for k in j[neighbour]:
             shared, u, v = (b[i], a[i], b[k]) if k == i + 1 else (a[i], b[i], a[k])
             du, dv = u - shared, v - shared
-            if abs(du[0] * dv[1] - du[1] * dv[0]) <= tol and np.dot(du, dv) > 0:
+            longer = max(float(np.hypot(*du)), float(np.hypot(*dv)))
+            if (
+                abs(du[0] * dv[1] - du[1] * dv[0]) <= eps * longer
+                and np.dot(du, dv) > 0
+            ):
                 raise ValueError("polygon edges overlap: the outline is not simple")
 
 
@@ -1087,8 +1121,12 @@ class PolygonRZ(BaseObject):
     because the WarpX/AMReX parser evaluates with a stack of 16 entries: in 3D
     the expression needs about 6-8 for 10 edges (depending on the shape), 12
     for 130, 14 for 514 and 15 for 1026 edges. Combining shapes adds about one
-    per level of the balanced union, which the warning above 256 edges does not
-    see.
+    per level of the balanced union. Geometry.build_eb_expr and
+    to_potential_expr warn when the whole expression needs more than 16 (see
+    parser_stack_size). Long outlines also take long to compile when WarpX
+    starts, once for the EB function and once for the potential: on one core,
+    about 0.1 s for 130 edges, 1 s for 256, 16 s for 514 and 4 min for 1026
+    edges, so PolygonRZ warns above 256 edges.
 
     Parameters:
         points: sequence of (z, r) vertices
@@ -1105,9 +1143,11 @@ class PolygonRZ(BaseObject):
     def __init__(self, points, name=None, default_voltage=0):
         super().__init__()
         try:
+            if not isinstance(points, np.ndarray):
+                points = list(points)  # also iterators such as zip(z, r)
             # a copy: later changes to points do not leak in
             pts = np.array(points, dtype=float)
-        except ValueError as err:
+        except (TypeError, ValueError) as err:
             raise ValueError("points must be a sequence of (z, r) pairs") from err
         if pts.ndim != 2 or pts.shape[1] != 2:
             raise ValueError(
@@ -1134,10 +1174,10 @@ class PolygonRZ(BaseObject):
         _check_simple(pts)  # a simple polygon also has a non-zero area
         if len(pts) > _POLYGON_EDGES_WARN:
             warnings.warn(
-                f"PolygonRZ with {len(pts)} edges: the WarpX/AMReX parser evaluates "
-                "with a stack of 16 entries, which the expression, combined with "
-                "other shapes, may exceed (it needs 14 for 514 edges in 3D); "
-                "consider simplifying the outline",
+                f"PolygonRZ with {len(pts)} edges: the WarpX/AMReX parser takes long "
+                "to compile the expression when WarpX starts (on one core, about "
+                "16 s for 514 edges and 4 min for 1026); consider simplifying the "
+                "outline, e.g., by merging short edges of discretized arcs",
                 stacklevel=2,
             )
         pts.flags.writeable = False
@@ -1349,8 +1389,14 @@ class Geometry:
         self.object.collect_named(self.conductors)
 
     def build_eb_expr(self) -> str:
-        """Return the WarpX embedded-boundary expression string."""
-        return self.object.build_expr(rz=self.rz)
+        """Return the WarpX embedded-boundary expression string.
+
+        Warns if the expression needs more than the 16 entries of the WarpX/AMReX
+        parser stack (see parser_stack_size).
+        """
+        expr = self.object.build_expr(rz=self.rz)
+        _check_parser_stack("embedded-boundary expression", [expr])
+        return expr
 
     def __str__(self):
         return self.build_eb_expr()
@@ -1385,6 +1431,9 @@ class Geometry:
 
         Returns:
             Combined potential expression string, or "0" if all voltages are zero.
+
+        Warns if the expression needs more than the 16 entries of the WarpX/AMReX
+        parser stack (see parser_stack_size).
         """
         if volt_dict is None:
             volt_dict = {}
@@ -1411,6 +1460,10 @@ class Geometry:
         if not parts:
             return "0"
 
+        # the if() chain evaluates one condition or voltage at a time
+        _check_parser_stack(
+            "potential expression", [e for region, v in parts for e in (region, str(v))]
+        )
         result = "0"
         for region, voltage in reversed(parts):
             result = f"if({region}, {voltage}, {result})"

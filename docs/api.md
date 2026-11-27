@@ -108,6 +108,12 @@
 .. autofunction:: warpx_geometry.bboxes_overlap
 ```
 
+## WarpX parser
+
+```{eval-rst}
+.. autofunction:: warpx_geometry.parser_stack_size
+```
+
 ## Plotting
 
 ```{eval-rst}

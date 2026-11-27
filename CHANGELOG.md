@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `PolygonRZ`: a body of revolution about the z-axis with a polygonal (z, r) cross-section,
   for electrodes taken from engineering drawings (stepped bores, chamfers, cones, cavities).
   The expression is the exact signed distance; edges on the axis are not surfaces.
+- `parser_stack_size(expr)`: the stack size that the WarpX/AMReX parser needs for an
+  expression. `Geometry.build_eb_expr` (`str(geometry)`) and `to_potential_expr` warn
+  when it exceeds the parser's 16 entries, for which WarpX aborts at startup.
 - The release workflow creates a GitHub release with the changelog entry and the built
   files, and stops before publishing if the changelog has no entry for the version.
 

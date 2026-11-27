@@ -3,7 +3,14 @@
 import numpy as np
 import pytest
 
-from warpx_geometry import CylinderZ, Geometry, PolygonRZ, Scale, Translate
+from warpx_geometry import (
+    CylinderZ,
+    Geometry,
+    PolygonRZ,
+    Scale,
+    Translate,
+    parser_stack_size,
+)
 from warpx_geometry.geometry import evaluate_expr
 
 # An extraction electrode: entrance bore, wider cavity, exit bore, conical nose
@@ -200,6 +207,8 @@ def test_bbox():
         ([0, 1, 1, 1, 1, 2, 0, 2], "pairs"),
         ([(0, 1, 1, 1), (1, 2, 0, 2)], "pairs"),
         ([(0, 1), (1, 1, 2), (0, 2)], "pairs"),  # ragged
+        ([(0, 1), (1, 1j), (0, 2)], "pairs"),  # complex
+        (5, "pairs"),
         (np.empty((0, 2)), "at least 3 vertices"),
     ],
 )
@@ -208,13 +217,41 @@ def test_invalid(pts, message):
         PolygonRZ(pts)
 
 
+def test_points_from_an_iterator():
+    z, r = [0, 1e-3, 1e-3, 0], [1e-3, 1e-3, 2e-3, 2e-3]
+    assert PolygonRZ(zip(z, r, strict=True)).build_expr(rz=True) == PolygonRZ(
+        list(zip(z, r, strict=True))
+    ).build_expr(rz=True)
+
+
+@pytest.mark.parametrize("scale", [1.0, 1e-6, 1e6])
+def test_validation_does_not_depend_on_edge_lengths(scale):
+    # The rounding tolerance is 1e-12 of the outline size as a distance, also
+    # next to short edges: a 10 nm tip (53 degrees) in a 20 mm outline is fine,
+    # and so is the same outline at other scales.
+    tip = [
+        (0, 1e-3),
+        (20e-3, 1e-3),
+        (20e-3, 5e-3),
+        (10e-3, 5e-3),
+        (10e-3 - 5e-9, 5e-3 + 1e-8),
+        (10e-3 - 1e-8, 5e-3),
+        (0, 5e-3),
+    ]
+    PolygonRZ([(scale * zz, scale * rr) for zz, rr in tip])
+    # a fold back onto a neighbour stays an overlap at any scale
+    fold = [(0, 1), (2, 1), (2, 2), (1, 2), (1.5, 2), (0, 3)]
+    with pytest.raises(ValueError, match="overlap|touch or cross"):
+        PolygonRZ([(scale * zz, scale * rr) for zz, rr in fold])
+
+
 def test_large_outline_warns():
     z = np.linspace(0, 1, 300)
     pts = [(zz, 1.0 + 0.2 * (k % 2)) for k, zz in enumerate(z)] + [
         (1.0, 0.0),
         (0.0, 0.0),
     ]
-    with pytest.warns(UserWarning, match="stack"):
+    with pytest.warns(UserWarning, match="compile"):
         PolygonRZ(pts)
 
 
@@ -245,25 +282,17 @@ def test_repr():
 
 
 def test_shallow_expression():
-    # Balanced min and product trees: the nesting grows with log2 of the number
-    # of edges.  What counts is the AMReX parser's stack (its limit is 16); it
-    # measured 6 for ELECTRODE and 14 for 514 edges in 3D.
-    def depth(expr):
-        level = deepest = 0
-        for ch in expr:
-            level += ch == "("
-            level -= ch == ")"
-            deepest = max(deepest, level)
-        return deepest
-
+    # Balanced min and product trees: the AMReX parser's stack (its limit is
+    # 16) grows with log2 of the number of edges.  The numbers are those that
+    # AMReX 26.08 and 26.11 report (Parser::maxStackSize).
     def zigzag(n):
         z = np.linspace(0, 1, n)
         top = [(zz, 1.0 + 0.2 * (k % 2)) for k, zz in enumerate(z)]
         return PolygonRZ(top + [(1.0, 0.0), (0.0, 0.0)])
 
+    with pytest.warns(UserWarning, match="compile"):
+        zigzag(300)  # above 256 edges
     for rz in (True, False):
-        with pytest.warns(UserWarning):
-            zigzag(300)  # above 256 edges
-        d8, d32, d128 = (depth(zigzag(n).build_expr(rz=rz)) for n in (8, 32, 128))
-        assert d32 - d8 <= 2 and d128 - d32 <= 2
-        assert d8 <= 14
+        assert parser_stack_size(PolygonRZ(ELECTRODE).build_expr(rz=rz)) == 6
+        stacks = [parser_stack_size(zigzag(n).build_expr(rz=rz)) for n in (8, 128, 512)]
+        assert stacks == [8, 12, 14]
